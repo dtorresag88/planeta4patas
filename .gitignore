@@ -1,0 +1,7 @@
+.DS_Store
+Thumbs.db
+*.xlsx
+.env
+.env.*
+supabase/.temp/
+node_modules/
