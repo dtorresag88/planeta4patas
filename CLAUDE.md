@@ -29,10 +29,16 @@ Tienda online del pet shop Planeta 4 Patas (Vicuña Mackenna 10492, La Florida, 
 - Tono cercano, español de Chile, emojis 🐾 con moderación.
 - Mobile first: probar a 375 px sin scroll horizontal.
 
+## Despliegue actual
+- Sitio: https://dtorresag88.github.io/planeta4patas/ (GitHub Pages, repo público dtorresag88/planeta4patas, rama main). Panel: `/admin.html`.
+- Supabase: proyecto `nfwezvfzmbxkjptubdvi`. Migraciones 001–003 aplicadas; funciones desplegadas con verify_jwt=false.
+- `supabase/migrations/003_admin_notas.sql` — columna `orders.admin_notes` (notas internas del panel).
+
 ## Pendientes
-- Crear proyecto Supabase, ejecutar migraciones, desplegar funciones, cargar secretos (ver README.md).
+- Secreto `SITE_URL` en Supabase y alta del usuario administrador (`admins`).
+- Credenciales de producción: `MP_ACCESS_TOKEN` (Mercado Pago) y Webpay (`WEBPAY_ENV`, `WEBPAY_COMMERCE_CODE`, `WEBPAY_API_KEY`).
 - Fotos: 24 productos tienen foto (enlaces externos); faltan marcas masivas y accesorios.
-- Publicar en hosting estático (Netlify/Vercel/Cloudflare Pages) y conectar dominio.
+- Dominio propio (opcional) y actualizar `SITE_URL`.
 
 ## Previsualizar en local
 `npx serve .` o `python -m http.server 8000` y abrir http://localhost:8000
