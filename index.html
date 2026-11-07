@@ -5,9 +5,21 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Planeta 4 Patas · Pet Shop en La Florida</title>
   <meta name="description" content="Alimentos premium, snacks y accesorios para perros y gatos. Despacho $1.990 y GRATIS sobre $60.000. Vicuña Mackenna 10492, La Florida.">
-  <meta property="og:title" content="Planeta 4 Patas · Pet Shop">
-  <meta property="og:description" content="Todo para tu mascota, con despacho a domicilio. Paga con Webpay o Mercado Pago.">
-  <meta property="og:image" content="assets/logo.jpg">
+  <link rel="canonical" href="https://dtorresag88.github.io/planeta4patas/">
+  <meta property="og:type" content="website">
+  <meta property="og:locale" content="es_CL">
+  <meta property="og:site_name" content="Planeta 4 Patas">
+  <meta property="og:title" content="Planeta 4 Patas · Pet Shop en La Florida">
+  <meta property="og:description" content="Alimentos, snacks y accesorios para perros y gatos con despacho a domicilio. Retiro gratis junto al Metro San José de la Estrella.">
+  <meta property="og:url" content="https://dtorresag88.github.io/planeta4patas/">
+  <meta property="og:image" content="https://dtorresag88.github.io/planeta4patas/assets/logo.jpg">
+  <meta name="twitter:card" content="summary">
+  <script type="application/ld+json">
+  {"@context":"https://schema.org","@type":"PetStore","name":"Planeta 4 Patas","image":"https://dtorresag88.github.io/planeta4patas/assets/logo.jpg",
+   "url":"https://dtorresag88.github.io/planeta4patas/","telephone":"+56981203671",
+   "address":{"@type":"PostalAddress","streetAddress":"Vicuña Mackenna 10492","addressLocality":"La Florida","addressRegion":"Región Metropolitana","addressCountry":"CL"},
+   "sameAs":["https://www.instagram.com/planeta4patas_tienda/"],"priceRange":"$$"}
+  </script>
   <meta name="theme-color" content="#0f2a52">
   <link rel="icon" href="assets/logo.jpg">
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -18,10 +30,10 @@
 <body>
   <div id="demo-bar" class="demo-bar" hidden>Vista previa · los pagos están desactivados hasta conectar la tienda</div>
 
-  <div class="announce">
+  <div class="announce" id="announce">
     <div class="wrap announce-in">
-      <span>🚚 Despacho <b>$1.990</b> · ¡<b>GRATIS</b> sobre $60.000!</span>
-      <span class="hide-sm">📍 Vicuña Mackenna 10492, La Florida · 🚇 Metro San José de la Estrella</span>
+      <span id="announce-text">🚚 Despacho <b>$1.990</b> · ¡<b>GRATIS</b> sobre $60.000!</span>
+      <span class="hide-sm" id="announce-addr">📍 Vicuña Mackenna 10492, La Florida · 🚇 Metro San José de la Estrella</span>
     </div>
   </div>
 
@@ -56,14 +68,14 @@
         <div class="hero-copy">
           <span class="pill">🐾 Pet shop para perros y gatos</span>
           <h1>Todo lo que tu mascota necesita, <span>sin salir de casa</span></h1>
-          <p>Alimentos premium, snacks y accesorios con despacho a domicilio. Paga seguro con Webpay o Mercado Pago.</p>
+          <p>Alimentos premium, snacks y accesorios con despacho a domicilio o retiro en tienda. Compra en minutos y paga seguro.</p>
           <div class="hero-cta">
             <a class="btn btn-orange btn-lg" href="#catalogo">Comprar ahora</a>
             <a class="btn btn-ghost btn-lg" href="#ofertas">Ver ofertas</a>
           </div>
           <ul class="hero-facts">
-            <li><b>$1.990</b><span>despacho</span></li>
-            <li><b>GRATIS</b><span>sobre $60.000</span></li>
+            <li><b data-ship-fee>$1.990</b><span>despacho</span></li>
+            <li><b>GRATIS</b><span>sobre <span data-free-from>$60.000</span></span></li>
             <li><b>Retiro</b><span>en tienda</span></li>
           </ul>
         </div>
@@ -86,8 +98,8 @@
 
     <!-- BENEFICIOS -->
     <section class="wrap perks">
-      <div class="perk"><span>🚀</span><div><b>Despacho a domicilio</b><small>La Florida, Las Condes, Ñuñoa y Providencia</small></div></div>
-      <div class="perk"><span>🔒</span><div><b>Pago 100% seguro</b><small>Webpay y Mercado Pago</small></div></div>
+      <div class="perk"><span>🚀</span><div><b>Despacho a domicilio</b><small id="perk-comunas">La Florida, Las Condes, Ñuñoa y Providencia</small></div></div>
+      <div class="perk"><span>🔒</span><div><b>Pago 100% seguro</b><small id="perk-pay">Tarjetas de débito y crédito</small></div></div>
       <div class="perk"><span>🏪</span><div><b>Retira gratis</b><small>Junto al Metro San José de la Estrella</small></div></div>
       <div class="perk"><span>💬</span><div><b>Te asesoramos</b><small>Escríbenos por WhatsApp</small></div></div>
     </section>
@@ -146,14 +158,14 @@
     <section class="section" id="despacho">
       <div class="wrap ship">
         <div class="ship-copy">
-          <h2>Despachos a <span class="hl">$1.990</span></h2>
-          <p class="lead">¡<b>Gratis</b> por compras sobre <b>$60.000</b>! Y si quedas en un radio de 3 cuadras del local, el despacho es gratis independiente del valor de tu compra.</p>
+          <h2>Despachos a <span class="hl" data-ship-fee>$1.990</span></h2>
+          <p class="lead">¡<b>Gratis</b> por compras sobre <b data-free-from>$60.000</b>! Y si quedas en un radio de 3 cuadras del local, el despacho es gratis independiente del valor de tu compra.</p>
           <p class="muted">¿Estás cerca del local? Escríbenos por WhatsApp antes de comprar y lo coordinamos.</p>
           <a class="btn btn-green" id="wa-ship" target="_blank" rel="noopener">💬 Consultar por WhatsApp</a>
         </div>
         <div class="route">
           <h3>Nuestro recorrido semanal</h3>
-          <ol class="days">
+          <ol class="days" id="days">
             <li><b>Lunes</b><span>Las Condes</span></li>
             <li><b>Martes</b><span>Ñuñoa y Providencia</span></li>
             <li><b>Miércoles</b><span>La Florida</span></li>
@@ -170,7 +182,7 @@
       <div class="wrap visit-in">
         <div>
           <h2>Visítanos en La Florida</h2>
-          <p class="lead">📍 Vicuña Mackenna 10492<br>🚇 A pasos del Metro San José de la Estrella</p>
+          <p class="lead">📍 Vicuña Mackenna 10492<br>🚇 A pasos del Metro San José de la Estrella<span id="visit-hours"></span></p>
           <div class="visit-cta">
             <a class="btn btn-orange" target="_blank" rel="noopener" href="https://www.google.com/maps/search/?api=1&query=Vicu%C3%B1a+Mackenna+10492+La+Florida">Cómo llegar</a>
             <a class="btn btn-ghost" id="ig-link" target="_blank" rel="noopener">Síguenos en Instagram</a>
@@ -202,7 +214,7 @@
       </div>
       <div>
         <h4>Pagos seguros</h4>
-        <div class="pay-badges"><span>Webpay</span><span>Mercado Pago</span></div>
+        <div class="pay-badges" id="pay-badges"><span>Débito</span><span>Crédito</span></div>
       </div>
     </div>
     <div class="wrap copy">© <span id="year"></span> Planeta 4 Patas · Pet shop para tu mascota 🐾</div>
@@ -255,8 +267,8 @@
             <fieldset>
               <legend><span class="step">2</span> Entrega</legend>
               <div class="choice">
-                <label class="opt"><input type="radio" name="delivery" value="despacho" checked><span><b>🚚 Despacho a domicilio</b><small>$1.990 · gratis sobre $60.000</small></span></label>
-                <label class="opt"><input type="radio" name="delivery" value="retiro"><span><b>🏪 Retiro en tienda</b><small>Gratis · Vicuña Mackenna 10492</small></span></label>
+                <label class="opt"><input type="radio" name="delivery" value="despacho" checked><span><b>🚚 Despacho a domicilio</b><small id="opt-ship-txt">$1.990 · gratis sobre $60.000</small></span></label>
+                <label class="opt" id="opt-pickup"><input type="radio" name="delivery" value="retiro"><span><b>🏪 Retiro en tienda</b><small>Gratis · Vicuña Mackenna 10492</small></span></label>
               </div>
               <div class="fields" id="ship-fields">
                 <label>Comuna<select name="comuna" id="co-comuna"></select></label>
@@ -269,17 +281,21 @@
 
             <fieldset>
               <legend><span class="step">3</span> Pago</legend>
-              <div class="choice">
-                <label class="opt"><input type="radio" name="payment" value="webpay" checked><span><b>Webpay</b><small>Débito, crédito y prepago</small></span></label>
-                <label class="opt"><input type="radio" name="payment" value="mercadopago"><span><b>Mercado Pago</b><small>Tarjetas o saldo Mercado Pago</small></span></label>
-              </div>
+              <div class="choice" id="pay-options"></div>
+              <p class="ship-day" id="pay-none" hidden>💬 Por ahora los pedidos se confirman por WhatsApp: al enviar te abrimos un chat con tu pedido listo y coordinamos el pago (transferencia o en tienda).</p>
             </fieldset>
           </div>
 
           <aside class="co-summary">
             <h3>Resumen</h3>
             <div id="co-items"></div>
+            <div class="coupon">
+              <input id="co-code" placeholder="Código de descuento" autocomplete="off" aria-label="Código de descuento">
+              <button type="button" class="btn btn-blue" id="co-apply">Aplicar</button>
+            </div>
+            <p class="coupon-msg" id="co-code-msg"></p>
             <div class="row"><span>Subtotal</span><span id="co-subtotal"></span></div>
+            <div class="row" id="co-disc-row" hidden><span>Descuento <small id="co-disc-code"></small></span><span id="co-discount"></span></div>
             <div class="row"><span>Despacho</span><span id="co-shipping"></span></div>
             <div class="row total"><span>Total</span><b id="co-total"></b></div>
             <p class="form-error" id="co-error" role="alert"></p>

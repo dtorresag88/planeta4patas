@@ -1,77 +1,92 @@
-# Planeta 4 Patas · Tienda online
+# Planeta 4 Patas · Tienda online + panel de administración
 
-Tienda propia con catálogo, carrito, checkout con **Webpay Plus** y **Mercado Pago**, seguimiento de pedidos y panel de administración. El backend corre sobre Supabase.
+- **Tienda:** https://dtorresag88.github.io/planeta4patas/
+- **Panel (estilo Shopify):** https://dtorresag88.github.io/planeta4patas/admin.html
 
-## Estructura
+Backend en Supabase (proyecto `nfwezvfzmbxkjptubdvi`): base de datos, usuarios, fotos y funciones de pago.
 
-```
-index.html                  Tienda (catálogo, carrito, checkout, estado del pedido)
-admin.html                  Panel: pedidos, productos/stock/precios, despacho
-assets/config.js            ← ÚNICO archivo que se edita para conectar la tienda
-assets/app.js · styles.css  Lógica y diseño
-assets/demo-data.js         Catálogo de vista previa (modo demo)
-supabase/migrations/001_tienda.sql   Base de datos, seguridad y catálogo inicial
-supabase/functions/checkout          Crea el pedido y el pago
-supabase/functions/mp-webhook        Confirma pagos de Mercado Pago
-supabase/functions/webpay-return     Confirma pagos Webpay
-```
+---
 
-Sin `config.js` completo la tienda funciona en **modo demo** (navegable, sin cobros).
+## 🚀 Primeros pasos (5 minutos)
 
-## Puesta en marcha
+1. **Crear tu cuenta del panel.** Entra a `admin.html` → **¿Primera vez? Crear cuenta** con `dtorresag@gmail.com` (ya está invitado) y una contraseña. Confirma el correo que te llega y vuelve a ingresar.
+   *Si el enlace del correo abre una página que no carga, no importa: el correo ya quedó confirmado.*
+2. **Conectar Mercado Pago.** Panel → **Configuración → Pagos** → pega el *Access Token* de producción (`APP_USR-…`) → **Probar conexión**. Ahí mismo hay una guía paso a paso para obtenerlo.
+3. **Hacer una compra real de bajo monto** en la tienda y verificar que aparece como **Pagado** en el panel.
 
-### 1. Supabase
-1. Crear proyecto (región **South America – São Paulo**).
-2. **SQL Editor** → ejecutar `supabase/migrations/001_tienda.sql` y luego `002_catalogo.sql` (catálogo con códigos y precios).
-3. **Authentication → Users → Add user**: crear el usuario administrador (correo + contraseña).
-4. En SQL Editor:
-   ```sql
-   insert into public.admins (user_id)
-   select id from auth.users where email = 'CORREO_DEL_ADMIN';
-   ```
+Mientras no haya un medio de pago activo, la tienda **sigue vendiendo**: el botón del checkout envía el pedido completo por WhatsApp.
 
-### 2. Edge Functions
-Con Supabase CLI (`npm i -g supabase`):
-```bash
-supabase login
-supabase link --project-ref TU_PROJECT_REF
-supabase functions deploy checkout --no-verify-jwt
-supabase functions deploy mp-webhook --no-verify-jwt
-supabase functions deploy webpay-return --no-verify-jwt
-supabase functions deploy import-images --no-verify-jwt
-```
+---
 
-Secretos (**Project Settings → Edge Functions → Secrets**):
+## 🧭 Guía del panel
 
-| Secreto | Valor |
+| Sección | Qué puedes hacer |
 |---|---|
-| `SITE_URL` | URL pública de la tienda, ej. `https://planeta4patas.cl` |
-| `MP_ACCESS_TOKEN` | Mercado Pago → Tus integraciones → Credenciales de producción → *Access Token* |
-| `WEBPAY_ENV` | `integration` (pruebas) o `production` |
-| `WEBPAY_COMMERCE_CODE` | Código de comercio entregado por Transbank (solo producción) |
-| `WEBPAY_API_KEY` | API Key secreta entregada por Transbank (solo producción) |
+| **Inicio** | Ventas, pedidos, ticket promedio y unidades (con comparación al período anterior), gráfico de ventas, tareas pendientes (pedidos por preparar, transferencias por confirmar, stock bajo, productos sin foto) y más vendidos. |
+| **Pedidos** | Pestañas por estado, búsqueda (#, nombre, teléfono, correo, RUT, comuna), acciones en lote (preparando / despachado / entregado), imprimir hojas de preparación y exportar a Excel. |
+| **Detalle de pedido** | Avanzar el estado con un clic, registrar pago manual (transferencia/efectivo), cancelar con reposición de stock, historial con comentarios del equipo, notas internas, etiquetas, mensajes de WhatsApp listos por etapa (confirmación, en camino, listo para retiro, recuperar compra), enlace de seguimiento, mapa y Waze. |
+| **Crear pedido** | Ventas en el local, por WhatsApp o teléfono: buscar productos, ajustar precios, despacho, descuento, medio de pago y cliente existente. Descuenta stock si está pagado. |
+| **Pagos no completados** | Clientes que llegaron a pagar y no terminaron: recupéralos con la plantilla de WhatsApp. |
+| **Productos** | Filtros (visibles, ocultos, destacados, sin foto, en oferta, stock bajo), acciones en lote (mostrar/ocultar, destacar, cambiar categoría, **subir/bajar precios %, poner/quitar oferta**, eliminar), exportar catálogo, **actualizar precios y stock desde un CSV de Excel** por código, copiar fotos externas a la tienda. |
+| **Ficha de producto** | Título, descripción, **varias fotos** (arrastrar y soltar, se optimizan solas), formatos con precio, precio "antes", código y stock, categoría, marca, mascota, etapa, etiquetas, ventas de 90 días, duplicar, compartir enlace. |
+| **Inventario** | Stock de todos los formatos con +/−, motivo del ajuste e **historial de movimientos** (ventas, cancelaciones, ajustes, importaciones). |
+| **Categorías** | Crear, editar, ordenar (orden de la tienda) y eliminar. |
+| **Clientes** | Generados automáticamente desde los pedidos: total gastado, n° de pedidos, recurrentes, mejores clientes, inactivos +60 días, notas y etiquetas, lo que más compra, botón "recordar reposición" por WhatsApp, exportar. |
+| **Descuentos** | Códigos por % / monto fijo / despacho gratis, compra mínima, fechas, límite de usos, una vez por cliente. Botón para compartir por WhatsApp. |
+| **Análisis** | Cualquier rango de fechas: ventas, descuentos, conversión del pago, clientes que repiten, más vendidos, por categoría, medio de pago, comuna, canal, día de la semana y hora. Exportar ventas por línea. |
+| **Configuración** | General (datos, barra de anuncios, alerta de stock), **Pagos** (Mercado Pago, transferencia, Webpay), Despacho (costo, gratis desde, comunas y días, retiro) y **Equipo** (invitar personas). |
 
-> Webpay parte en **ambiente de integración** con las credenciales públicas de prueba de Transbank, así se puede probar el flujo completo sin cobros reales. Tarjetas de prueba: transbankdevelopers.cl → Documentación → Ambientes.
+Extras: búsqueda global (tecla `/`), aviso con sonido y notificación al entrar un pedido pagado, contador de pedidos por preparar, funciona en el celular.
 
-### 3. Conectar la web
-En `assets/config.js` completar `SUPABASE_URL` y `SUPABASE_ANON_KEY` (Project Settings → API).
+---
 
-### 4. Publicar
-Cualquier hosting estático sirve (gratis): **Netlify** (arrastrar la carpeta en app.netlify.com/drop), **Vercel** o **Cloudflare Pages**. Luego apuntar el dominio y actualizar `SITE_URL`.
+## 🛍️ Mejoras de la tienda
 
-### 5. Pasar a producción
-- **Webpay**: contratar Webpay Plus REST en Transbank, completar el proceso de validación, cargar `WEBPAY_COMMERCE_CODE`, `WEBPAY_API_KEY` y `WEBPAY_ENV=production`.
-- **Mercado Pago**: usar credenciales de producción de la cuenta de la tienda. Las notificaciones de pago llegan solas (la URL va en cada preferencia).
-- Hacer una compra real de bajo monto con cada medio y revisar que aparezca como **Pagado** en el panel.
+- Todo se controla desde el panel: anuncio, costo de despacho, comunas/días, retiro, medios de pago, WhatsApp, Instagram y horario.
+- **Códigos de descuento** en el checkout (validados en el servidor).
+- **Transferencia bancaria** opcional con instrucciones al cliente.
+- Si no hay pagos en línea activos: **pedido por WhatsApp** con el detalle completo.
+- Ficha de producto con **galería**, **productos relacionados**, **compartir por WhatsApp** y **enlace directo** (`?p=slug`).
+- SEO: datos estructurados de tienda (PetStore), Open Graph, `robots.txt` y `sitemap.xml`.
 
-## Fotos de productos
-El catálogo trae fotos oficiales de 24 productos enlazadas desde internet. Al conectar la tienda, en el panel **Productos → "Copiar fotos a la tienda"** quedan guardadas en el Storage propio. El resto se sube desde el panel (Editar producto → Imagen).
+---
 
-## Operación diaria (admin.html)
-- **Pedidos**: los pagados quedan en "Pagados (por preparar)". Cambiar estado a Preparando → Despachado → Entregado. Botón directo a WhatsApp del cliente.
-- **Productos**: crear/editar, subir foto, formatos (kg, packs) con precio, precio "antes" para ofertas y stock. El stock se descuenta solo al confirmarse el pago.
-- **Despacho**: costo, monto para despacho gratis y comunas con días de reparto.
+## 🔐 Seguridad
 
-## Pendiente antes de lanzar
-- Cargar **stock** (opcional) y subir las fotos de los productos que aún no tienen.
-- Confirmar comunas y días de reparto en el panel.
+- Precios, stock y descuentos se calculan **siempre en el servidor** (función `checkout`).
+- Credenciales de pago guardadas **encriptadas en Supabase Vault**; el navegador nunca puede leerlas.
+- Permisos por fila (RLS): solo administradores ven pedidos, clientes y configuración privada.
+- Pagos de Mercado Pago y Webpay se confirman consultando la API del proveedor (nunca confiando en el navegador).
+- Webpay en modo **integración** NO cobra: está desactivado por defecto y el panel lo advierte.
+
+---
+
+## 🏗️ Estructura técnica
+
+```
+index.html, assets/app.js, assets/styles.css      Tienda
+admin.html, assets/admin.css, assets/admin/*.js   Panel (core, home, orders, products, customers, marketing, settings, boot)
+assets/config.js                                  URL y clave pública de Supabase
+supabase/migrations/001…006                        Esquema, RLS, funciones (aplicadas en el proyecto)
+supabase/functions/checkout                       Crea pedido + pago (MP / Webpay / transferencia) con descuentos
+supabase/functions/mp-webhook                     Confirma pagos de Mercado Pago
+supabase/functions/webpay-return                  Confirma pagos Webpay
+supabase/functions/admin-tools                    Verifica credenciales de Mercado Pago (solo admin)
+supabase/functions/import-images                  Copia fotos externas al Storage (solo admin)
+tools/catalogo.py                                 Genera 002_catalogo.sql y demo-data.js desde el Excel
+```
+
+Las funciones leen la configuración desde `store_settings` y las credenciales desde Vault, así que **no es necesario cargar secretos en Supabase**. (Si se definen variables `SITE_URL`, `MP_ACCESS_TOKEN`, etc. como secretos de Edge Functions, tienen prioridad.)
+
+Publicar cambios: `git push` a `main` → GitHub Pages actualiza el sitio en ~1 minuto.
+
+---
+
+## ✅ Pendientes recomendados
+
+- Supabase → **Authentication → URL Configuration → Site URL**: poner `https://dtorresag88.github.io/planeta4patas/admin.html` (para que los enlaces de confirmación y de "olvidé mi contraseña" vuelvan al panel).
+- Supabase → Authentication → Users: eliminar la cuenta de prueba sin confirmar `dtorresag+qa@gmail.com` (creada durante las pruebas; no tiene acceso).
+- Para invitar a otras personas al panel: el correo de Supabase por defecto solo envía a miembros de tu organización de Supabase. Para invitar a cualquier correo, configura un SMTP propio (Authentication → Emails → SMTP, p. ej. Resend o Brevo).
+- Opcional: activar *Leaked password protection* en Authentication → Passwords.
+- Subir fotos de los productos que aún no tienen (Productos → pestaña **Sin foto**).
+- Dominio propio (ej. planeta4patas.cl) y actualizar la URL en Configuración → General.

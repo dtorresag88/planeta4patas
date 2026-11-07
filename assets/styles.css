@@ -359,3 +359,31 @@ input.invalid { border-color: var(--red); }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+/* ---------- mejoras: cupones, galería, relacionados, transferencia ---------- */
+.coupon { display: flex; gap: 8px; margin: 12px 0 4px; }
+.coupon input { flex: 1; min-width: 0; text-transform: uppercase; }
+.coupon .btn { padding: 10px 16px; }
+.coupon-msg { margin: 0 0 8px; font-size: .88rem; font-weight: 700; }
+.coupon-msg.ok { color: var(--green); }
+.coupon-msg.bad { color: var(--red); }
+.pd-thumbs { display: flex; gap: 8px; flex-wrap: wrap; padding: 0 24px 16px; }
+.pd-thumbs button { width: 58px; height: 58px; border-radius: 10px; border: 2px solid var(--line); background: #fff; padding: 2px; cursor: pointer; }
+.pd-thumbs button.on { border-color: var(--orange); }
+.pd-thumbs img { width: 100%; height: 100%; object-fit: contain; padding: 0; }
+.pd-share { display: inline-flex; align-items: center; gap: 6px; font-weight: 800; color: var(--green); text-decoration: none; }
+.related { grid-column: 1 / -1; padding: 0 28px 28px; }
+.related h3 { margin: 0 0 12px; color: var(--navy); }
+.related-row { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.rel { text-align: left; background: var(--sky-50); border: 0; border-radius: 14px; padding: 10px; cursor: pointer; display: flex; flex-direction: column; gap: 6px; }
+.rel-img { aspect-ratio: 1; border-radius: 10px; overflow: hidden; background: #fff; }
+.rel-img img { width: 100%; height: 100%; object-fit: contain; }
+.rel-img .ph { width: 100%; height: 100%; }
+.rel-img .ph .emo { font-size: 2.4rem; }
+.rel b { font-size: .88rem; line-height: 1.2; color: var(--ink); }
+.rel span { color: var(--orange-600); font-weight: 800; }
+.transfer-box { background: var(--sky-50); border-radius: 14px; padding: 14px 16px; text-align: left; white-space: pre-line; margin: 14px 0; }
+@media (max-width: 700px) {
+  .related { padding: 0 16px 20px; }
+  .related-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}

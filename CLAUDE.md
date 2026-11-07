@@ -31,14 +31,18 @@ Tienda online del pet shop Planeta 4 Patas (Vicuña Mackenna 10492, La Florida, 
 
 ## Despliegue actual
 - Sitio: https://dtorresag88.github.io/planeta4patas/ (GitHub Pages, repo público dtorresag88/planeta4patas, rama main). Panel: `/admin.html`.
-- Supabase: proyecto `nfwezvfzmbxkjptubdvi`. Migraciones 001–003 aplicadas; funciones desplegadas con verify_jwt=false.
-- `supabase/migrations/003_admin_notas.sql` — columna `orders.admin_notes` (notas internas del panel).
+- Supabase: proyecto `nfwezvfzmbxkjptubdvi`. Migraciones 001–006 aplicadas; funciones (checkout, mp-webhook, webpay-return, admin-tools, import-images) con verify_jwt=false.
+- Panel modular: `assets/admin/core.js` (utilidades, router hash `#/ruta`, modales `A.modal/A.ask/A.confirm`, `A.setDirty` barra de guardado) + un archivo por sección. Todo cuelga de `window.A`.
+- Config de tienda y pagos en `store_settings` (editable desde el panel). Credenciales de pago en Vault vía `set_payment_secret` (admin) / `get_payment_secret` (solo service_role).
+- Admins: tabla `admins`; invitaciones en `admin_invites` + `claim_admin_invite()` al iniciar sesión (requiere correo confirmado).
+- Funciones admin (`set_stock`, `admin_mark_paid`, `cancel_order`, `create_manual_order`, `admin_invite`, `admin_team`) validan `is_admin()` internamente.
+- Pruebas: arnés Playwright con backend simulado (no hay usuario admin de prueba). Probar a 375 px.
 
 ## Pendientes
-- Secreto `SITE_URL` en Supabase y alta del usuario administrador (`admins`).
-- Credenciales de producción: `MP_ACCESS_TOKEN` (Mercado Pago) y Webpay (`WEBPAY_ENV`, `WEBPAY_COMMERCE_CODE`, `WEBPAY_API_KEY`).
+- Dueño debe crear su cuenta en el panel (dtorresag@gmail.com ya invitado) y pegar el Access Token de Mercado Pago en Configuración → Pagos.
+- Auth Site URL → admin.html; borrar usuario de prueba sin confirmar dtorresag+qa@gmail.com.
 - Fotos: 24 productos tienen foto (enlaces externos); faltan marcas masivas y accesorios.
-- Dominio propio (opcional) y actualizar `SITE_URL`.
+- Dominio propio (opcional) y actualizar URL en Configuración → General.
 
 ## Previsualizar en local
 `npx serve .` o `python -m http.server 8000` y abrir http://localhost:8000

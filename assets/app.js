@@ -12,15 +12,28 @@
   const $$ = (s, el = document) => [...el.querySelectorAll(s)];
   const clp = (n) => "$" + Math.round(n || 0).toLocaleString("es-CL");
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-  const waLink = (text) => `https://wa.me/${CFG.WHATSAPP}?text=${encodeURIComponent(text)}`;
+  const waNumber = () => (state.settings.whatsapp || CFG.WHATSAPP || "").replace(/\D/g, "");
+  const waLink = (text) => `https://wa.me/${waNumber()}?text=${encodeURIComponent(text)}`;
 
   const state = {
-    products: [], categories: [], settings: { shipping_fee: 1990, free_shipping_from: 60000, delivery_zones: [] },
+    products: [], categories: [],
+    settings: { shipping_fee: 1990, free_shipping_from: 60000, delivery_zones: [], pickup_enabled: true },
     filters: { q: "", species: "", category: "", brand: "", sort: "featured" },
     selected: {}, // productId -> variantId
     limit: 24,
     cart: loadCart(),
+    discount: null, // { code, amount, free_shipping, kind, value }
   };
+
+  // Medios de pago disponibles según la configuración del panel
+  function payOptions() {
+    const s = state.settings;
+    const out = [];
+    if (s.mp_enabled && s.mp_configured) out.push(["mercadopago", "Mercado Pago", "Crédito, débito o saldo Mercado Pago"]);
+    if (s.webpay_enabled && (s.webpay_env === "integration" || s.webpay_configured)) out.push(["webpay", "Webpay", "Débito, crédito y prepago"]);
+    if (s.transfer_enabled) out.push(["transferencia", "Transferencia bancaria", "Te mostramos los datos al confirmar"]);
+    return out;
+  }
 
   // ---------------------------------------------------------------- data
   async function rest(path, opts = {}) {
@@ -39,7 +52,7 @@
     const [products, categories, settings] = await Promise.all([
       rest("products?select=*,product_variants(*)&active=eq.true&order=name"),
       rest("categories?select=*&order=sort"),
-      rest("store_settings?select=shipping_fee,free_shipping_from,delivery_zones&id=eq.1"),
+      rest("store_settings?select=*&id=eq.1"),
     ]);
     products.forEach((p) => {
       p.product_variants = (p.product_variants || []).filter((v) => v.active).sort((a, b) => a.sort - b.sort || a.price - b.price);
@@ -48,6 +61,7 @@
     state.categories = categories;
     if (settings[0]) state.settings = settings[0];
   }
+  const allImages = (p) => [p.image_url, ...(p.gallery || [])].filter(Boolean);
 
   // ---------------------------------------------------------------- helpers
   const catOf = (slug) => state.categories.find((c) => c.slug === slug);
@@ -172,7 +186,7 @@
       if (f.category && p.category !== f.category) return false;
       if (f.brand && p.brand !== f.brand) return false;
       if (q) {
-        const hay = `${p.name} ${p.brand || ""} ${catOf(p.category)?.name || ""} ${p.life_stage || ""} ${p.description || ""} ${p.product_variants.map((v) => `${v.sku || ""} ${v.label}`).join(" ")}`.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+        const hay = `${p.name} ${p.brand || ""} ${catOf(p.category)?.name || ""} ${p.life_stage || ""} ${p.description || ""} ${(p.tags || []).join(" ")} ${p.product_variants.map((v) => `${v.sku || ""} ${v.label}`).join(" ")}`.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
         if (!q.split(/\s+/).every((w) => hay.includes(w))) return false;
       }
       return true;
@@ -214,11 +228,42 @@
     $("#f-brand").innerHTML = `<option value="">Todas las marcas</option>` + brands.map((b) => `<option>${esc(b)}</option>`).join("");
     $("#brands").innerHTML = brands.map((b) => `<button data-brand="${esc(b)}">${esc(b)}</button>`).join("");
 
+    const s = state.settings;
     const wa = waLink("¡Hola Planeta 4 Patas! 🐾 Tengo una consulta");
-    ["#wa-float", "#wa-foot", "#wa-ship"].forEach((s) => ($(s).href = wa));
-    const ig = `https://www.instagram.com/${CFG.INSTAGRAM}/`;
-    $("#ig-link").href = ig; $("#ig-foot").href = ig;
+    ["#wa-float", "#wa-foot", "#wa-ship"].forEach((x) => ($(x).href = wa));
+    const igUser = s.instagram || CFG.INSTAGRAM;
+    const ig = `https://www.instagram.com/${igUser}/`;
+    $("#ig-link").href = ig; $("#ig-foot").href = ig; $("#ig-foot").textContent = `@${igUser}`;
+    const n = waNumber();
+    if (n.length === 11) $("#wa-foot").textContent = `WhatsApp +${n.slice(0, 2)} ${n.slice(2, 3)} ${n.slice(3, 7)} ${n.slice(7)}`;
     $("#year").textContent = new Date().getFullYear();
+
+    // Textos que dependen de la configuración del panel
+    $$("[data-ship-fee]").forEach((el) => (el.textContent = clp(s.shipping_fee)));
+    $$("[data-free-from]").forEach((el) => (el.textContent = clp(s.free_shipping_from)));
+    $("#opt-ship-txt").textContent = s.free_shipping_from ? `${clp(s.shipping_fee)} · gratis sobre ${clp(s.free_shipping_from)}` : clp(s.shipping_fee);
+    if (s.announcement !== undefined) {
+      $("#announce").hidden = s.announcement_active === false || !s.announcement;
+      if (s.announcement) $("#announce-text").textContent = s.announcement;
+    }
+    if (s.hours) $("#visit-hours").innerHTML = `<br>🕐 ${esc(s.hours)}`;
+    const zones = s.delivery_zones || [];
+    if (zones.length) {
+      $("#perk-comunas").textContent = zones.map((z) => z.comuna).join(", ").replace(/, ([^,]*)$/, " y $1");
+      const DIAS = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"];
+      const byDay = DIAS.map((d) => [d, zones.filter((z) => (z.dias || []).includes(d)).map((z) => z.comuna)]).filter(([, c]) => c.length);
+      if (byDay.length) {
+        $("#days").innerHTML = byDay.map(([d, c]) => `<li><b>${d}</b><span>${esc(c.join(" y "))}</span></li>`).join("");
+        $("#days").style.gridTemplateColumns = `repeat(${Math.min(byDay.length, 5)}, 1fr)`;
+      }
+    }
+    const pays = payOptions();
+    $("#pay-badges").innerHTML = (pays.length ? pays.map(([, l]) => l) : ["Transferencia", "Pago en tienda"]).map((l) => `<span>${esc(l)}</span>`).join("");
+    $("#perk-pay").textContent = pays.length ? pays.map(([, l]) => l).join(" · ") : "Coordinamos el pago por WhatsApp";
+    $("#opt-pickup").hidden = s.pickup_enabled === false;
+    if (s.pickup_enabled === false) $("#checkout-form").delivery.value = "despacho";
+    $("#pay-options").innerHTML = pays.map(([k, l, d], i) => `<label class="opt"><input type="radio" name="payment" value="${k}" ${i === 0 ? "checked" : ""}><span><b>${esc(l)}</b><small>${esc(d)}</small></span></label>`).join("");
+    $("#pay-none").hidden = pays.length > 0;
   }
 
   function syncFilterUI() {
@@ -235,15 +280,27 @@
   }
 
   // ---------------------------------------------------------------- product modal
-  function openProduct(pid) {
+  const productUrl = (p) => `${location.origin}${location.pathname}?p=${encodeURIComponent(p.slug)}`;
+  function related(p) {
+    const score = (x) => (x.category === p.category ? 2 : 0) + (x.brand && x.brand === p.brand ? 1 : 0) + (x.species === p.species || x.species === "ambos" ? 1 : 0) + (x.image_url ? 0.5 : 0);
+    return state.products.filter((x) => x.id !== p.id && !x.product_variants.every(isOut)).sort((a, b) => score(b) - score(a) || a.name.localeCompare(b.name, "es")).slice(0, 4);
+  }
+  function openProduct(pid, imgIdx = 0) {
     const p = state.products.find((x) => x.id === pid);
     if (!p) return;
     const v = selectedVariant(p);
     const off = v.compare_at_price > v.price;
+    const imgs = allImages(p);
+    const main = imgs[imgIdx] || null;
     const stockTxt = isOut(v) ? ["no", "Sin stock"] : v.stock != null && v.stock <= 5 ? ["low", `¡Últimas ${v.stock} unidades!`] : ["ok", "✓ Disponible"];
+    const rel = related(p);
+    const relMinPrice = (x) => Math.min(...x.product_variants.map((y) => y.price));
+    if (new URLSearchParams(location.search).get("p") !== p.slug && !new URLSearchParams(location.search).get("pedido")) history.replaceState({}, "", `?p=${encodeURIComponent(p.slug)}`);
+    document.title = `${p.name} · Planeta 4 Patas`;
     $("#product-body").innerHTML = `
       <button class="icon-btn modal-x" data-close-modal aria-label="Cerrar">✕</button>
-      <div class="pd-media">${media(p)}</div>
+      <div><div class="pd-media">${main ? `<img src="${esc(main)}" alt="${esc(p.name)}" onerror="this.hidden=true;this.nextElementSibling.hidden=false">${placeholder(p, true)}` : placeholder(p)}</div>
+        ${imgs.length > 1 ? `<div class="pd-thumbs">${imgs.map((u, i) => `<button data-pimg="${i}" data-p="${p.id}" class="${i === imgIdx ? "on" : ""}" aria-label="Foto ${i + 1}"><img src="${esc(u)}" alt=""></button>`).join("")}</div>` : ""}</div>
       <div class="pd-body">
         <span class="card-brand">${esc(p.brand || "")}</span>
         <h2>${esc(p.name)}</h2>
@@ -261,21 +318,64 @@
           <div class="qty"><button data-pq="-1" aria-label="Menos">−</button><span id="pd-qty">1</span><button data-pq="1" aria-label="Más">+</button></div>
           <button class="btn btn-orange btn-lg" data-padd="${v.id}" ${isOut(v) ? "disabled" : ""}>Agregar al carrito</button>
         </div>
-      </div>`;
+        <a class="pd-share" target="_blank" rel="noopener" href="https://wa.me/?text=${encodeURIComponent(`Mira este producto en Planeta 4 Patas 🐾 ${p.name}: ${productUrl(p)}`)}">💬 Compartir por WhatsApp</a>
+      </div>
+      ${rel.length ? `<div class="related"><h3>También te puede gustar</h3><div class="related-row">${rel.map((x) => `
+        <button class="rel" data-open="${x.id}"><div class="rel-img">${x.image_url ? `<img src="${esc(x.image_url)}" alt="" loading="lazy">` : placeholder(x)}</div><b>${esc(x.name)}</b><span>${x.product_variants.length > 1 ? "desde " : ""}${clp(relMinPrice(x))}</span></button>`).join("")}</div></div>` : ""}`;
     $("#product-modal").hidden = false;
+    $("#product-modal").scrollTop = 0;
     document.body.style.overflow = "hidden";
   }
   function closeModals() {
     $$(".modal").forEach((m) => (m.hidden = true));
     document.body.style.overflow = "";
+    if (new URLSearchParams(location.search).get("p")) history.replaceState({}, "", location.pathname);
+    document.title = "Planeta 4 Patas · Pet Shop en La Florida";
   }
 
   // ---------------------------------------------------------------- checkout
   function shippingCost() {
     const f = $("#checkout-form");
     if (f.delivery.value !== "despacho") return 0;
+    if (state.discount?.free_shipping) return 0;
     const sub = cartSubtotal();
-    return sub >= state.settings.free_shipping_from ? 0 : state.settings.shipping_fee;
+    return state.settings.free_shipping_from && sub >= state.settings.free_shipping_from ? 0 : state.settings.shipping_fee;
+  }
+  const discountAmount = () => Math.min(state.discount?.amount || 0, cartSubtotal());
+
+  async function applyCoupon() {
+    const code = $("#co-code").value.trim().toUpperCase();
+    const msg = $("#co-code-msg");
+    if (!code) { state.discount = null; msg.textContent = ""; renderCheckout(); return; }
+    if (!LIVE) { msg.className = "coupon-msg bad"; msg.textContent = "Los códigos funcionan con la tienda conectada"; return; }
+    $("#co-apply").disabled = true;
+    try {
+      const d = await rest("rpc/eval_discount", { method: "POST", body: JSON.stringify({ p_code: code, p_subtotal: cartSubtotal(), p_email: $("#checkout-form").email.value.trim() || null }) });
+      if (d.ok) {
+        state.discount = d;
+        msg.className = "coupon-msg ok";
+        msg.textContent = `✓ ${d.kind === "free_shipping" ? "¡Despacho gratis aplicado!" : `Descuento de ${clp(d.amount)} aplicado`}`;
+      } else { state.discount = null; msg.className = "coupon-msg bad"; msg.textContent = d.error; }
+    } catch { msg.className = "coupon-msg bad"; msg.textContent = "No pudimos validar el código"; }
+    $("#co-apply").disabled = false;
+    renderCheckout();
+  }
+
+  function whatsappOrder(f) {
+    const lines = cartLines(), ship = shippingCost(), disc = discountAmount(), sub = cartSubtotal();
+    const isShip = f.delivery.value === "despacho";
+    const txt = [
+      "¡Hola Planeta 4 Patas! 🐾 Quiero hacer este pedido:", "",
+      ...lines.map((l) => `• ${l.qty} × ${l.p.name} ${l.v.label}${l.v.sku ? ` [${l.v.sku}]` : ""} — ${clp(l.v.price * l.qty)}`), "",
+      `Subtotal: ${clp(sub)}`, disc ? `Descuento ${state.discount.code}: -${clp(disc)}` : "", isShip ? `Despacho: ${ship ? clp(ship) : "gratis"}` : "Retiro en tienda",
+      `*Total: ${clp(sub - disc + ship)}*`, "",
+      `Nombre: ${f.name.value.trim()}`, `Teléfono: ${f.phone.value.trim()}`, `Correo: ${f.email.value.trim()}`,
+      isShip ? `Dirección: ${f.address.value.trim()}${f.detail.value.trim() ? `, ${f.detail.value.trim()}` : ""}, ${f.comuna.value}` : "",
+      f.notes.value.trim() ? `Comentario: ${f.notes.value.trim()}` : "",
+    ].filter((x) => x !== "").join("\n");
+    const url = waLink(txt);
+    const w = window.open(url, "_blank");
+    if (w) w.opener = null; else location.href = url; // si el navegador bloquea la ventana, abre WhatsApp aquí mismo
   }
   function renderCheckout() {
     const f = $("#checkout-form");
@@ -283,13 +383,19 @@
     $("#ship-fields").hidden = !isShip;
     const zone = state.settings.delivery_zones.find((z) => z.comuna === f.comuna.value);
     $("#ship-day").textContent = zone ? `📅 Despachamos en ${zone.comuna} los días ${zone.dias.join(" y ")}` : "";
-    const sub = cartSubtotal(), ship = shippingCost();
+    const sub = cartSubtotal(), ship = shippingCost(), disc = discountAmount();
     $("#co-items").innerHTML = cartLines().map((l) =>
       `<div class="co-line"><span>${l.qty} × ${esc(l.p.name)} ${esc(l.v.label)}</span><span>${clp(l.v.price * l.qty)}</span></div>`).join("");
     $("#co-subtotal").textContent = clp(sub);
+    $("#co-disc-row").hidden = !disc;
+    $("#co-discount").textContent = `-${clp(disc)}`;
+    $("#co-disc-code").textContent = state.discount?.code ? `(${state.discount.code})` : "";
     $("#co-shipping").textContent = !isShip ? "Retiro gratis" : ship === 0 ? "¡GRATIS!" : clp(ship);
-    $("#co-total").textContent = clp(sub + ship);
-    $("#co-submit").textContent = `Pagar ${clp(sub + ship)}`;
+    $("#co-total").textContent = clp(sub - disc + ship);
+    const pays = payOptions();
+    const pm = f.payment?.value;
+    $("#co-submit").textContent = !pays.length ? "💬 Enviar pedido por WhatsApp" : pm === "transferencia" ? `Confirmar pedido · ${clp(sub - disc + ship)}` : `Pagar ${clp(sub - disc + ship)}`;
+    $(".secure").textContent = !pays.length ? "Te abriremos WhatsApp con tu pedido listo para enviar." : pm === "transferencia" ? "🏦 Te mostraremos los datos para transferir." : "🔒 Serás redirigido al sitio seguro de pago.";
   }
   function openCheckout() {
     if (!state.cart.length) return;
@@ -321,17 +427,26 @@
     const btn = $("#co-submit");
     btn.disabled = true; btn.textContent = "Procesando…"; $("#co-error").textContent = "";
 
+    if (LIVE && !payOptions().length) {
+      whatsappOrder(f);
+      btn.disabled = false; renderCheckout();
+      $("#co-error").textContent = "";
+      toast("¡Listo! Envía el mensaje en WhatsApp para confirmar tu pedido 🐾");
+      return;
+    }
+
     const payload = {
       items: state.cart,
       customer: { name: f.name.value, email: f.email.value, phone: f.phone.value, rut: f.rut.value },
       delivery: { method: f.delivery.value, comuna: f.comuna.value, address: f.address.value, detail: f.detail.value, notes: f.notes.value },
-      payment_method: f.payment.value,
+      payment_method: f.payment?.value || "mercadopago",
+      discount_code: state.discount?.code || null,
     };
 
     if (!LIVE) {
       // Modo demo: simula un pedido pagado
       const lines = cartLines();
-      const sub = cartSubtotal(), ship = shippingCost();
+      const sub = cartSubtotal() - discountAmount(), ship = shippingCost();
       sessionDemoOrder = {
         number: 1001, status: "pagado", payment_method: payload.payment_method, customer_name: payload.customer.name,
         delivery_method: payload.delivery.method, comuna: payload.delivery.comuna, address: payload.delivery.address,
@@ -390,7 +505,10 @@
         <p class="muted">Revisa el enlace o escríbenos por WhatsApp.</p><div class="order-actions"><a class="btn btn-blue" href="./">Volver a la tienda</a></div></div></div>`;
       return;
     }
-    const [icon, title, sub] = STATUS[o.status] || STATUS.pendiente_pago;
+    const transfer = o.payment_method === "transferencia" && o.status === "pendiente_pago";
+    const [icon, title, sub] = transfer
+      ? ["🏦", "¡Pedido recibido!", "Transfiere el total para que lo preparemos."]
+      : STATUS[o.status] || STATUS.pendiente_pago;
     const ok = ["pagado", "preparando", "despachado", "entregado"].includes(o.status);
     if (ok) { state.cart = []; saveCart(); }
     const entrega = o.delivery_method === "despacho"
@@ -400,9 +518,11 @@
       <div class="order-icon">${icon}</div>
       <h1>${title}</h1>
       <p>Pedido <span class="num">#${esc(o.number)}</span> · ${esc(sub)}</p>
-      ${o.status === "pendiente_pago" ? `<div class="spinner" aria-label="Cargando"></div>` : ""}
+      ${o.status === "pendiente_pago" && !transfer ? `<div class="spinner" aria-label="Cargando"></div>` : ""}
+      ${transfer ? `<div class="transfer-box"><b>Datos para transferir ${clp(o.total)}</b>\n${esc(o.transfer_info || "Te enviaremos los datos por WhatsApp.")}\n\n<small>Envíanos el comprobante por WhatsApp indicando el pedido #${esc(o.number)}.</small></div>` : ""}
       <div class="order-items">
         ${(o.items || []).map((i) => `<div class="co-line"><span>${i.qty} × ${esc(i.name)} ${esc(i.variant || "")}</span><span>${clp(i.line_total)}</span></div>`).join("")}
+        ${o.discount ? `<div class="co-line"><span>Descuento${o.discount_code ? ` (${esc(o.discount_code)})` : ""}</span><span>-${clp(o.discount)}</span></div>` : ""}
         <div class="co-line"><span>Despacho</span><span>${o.shipping ? clp(o.shipping) : "Gratis"}</span></div>
         <div class="row total"><span>Total</span><b>${clp(o.total)}</b></div>
       </div>
@@ -438,7 +558,7 @@
     const tick = async () => {
       try { o = await fetchOrder(id, token); } catch { o = null; }
       renderOrder(o);
-      if (o && o.status === "pendiente_pago" && tries++ < 20) setTimeout(tick, 3000);
+      if (o && o.status === "pendiente_pago" && o.payment_method !== "transferencia" && tries++ < 20) setTimeout(tick, 3000);
     };
     tick();
   }
@@ -449,6 +569,11 @@
     $("#order-view").hidden = true;
     $("#store").hidden = false;
     if (params.get("pago") === "error") toast("No pudimos completar el pago. Intenta nuevamente.");
+    const slug = params.get("p");
+    if (slug) {
+      const p = state.products.find((x) => x.slug === slug);
+      if (p) openProduct(p.id); else history.replaceState({}, "", location.pathname);
+    }
   }
 
   // ---------------------------------------------------------------- events
@@ -463,7 +588,8 @@
       if (d.add) addToCart(d.add);
       else if (d.variant) { state.selected[d.p] = d.variant; renderGrid(); }
       else if (d.open) openProduct(d.open);
-      else if (d.pvariant) { state.selected[d.p] = d.pvariant; openProduct(d.p); renderGrid(); }
+      else if (d.pvariant) { state.selected[d.p] = d.pvariant; openProduct(d.p, +($(".pd-thumbs .on")?.dataset.pimg || 0)); renderGrid(); }
+      else if (d.pimg) openProduct(d.p, +d.pimg);
       else if (d.pq) { const el = $("#pd-qty"); el.textContent = Math.max(1, Math.min(99, +el.textContent + +d.pq)); }
       else if (d.padd) { addToCart(d.padd, +$("#pd-qty").textContent); closeModals(); }
       else if (d.inc) { const l = state.cart.find((x) => x.variant_id === d.inc); setQty(d.inc, l.qty + 1); }
@@ -496,6 +622,8 @@
     form.addEventListener("change", renderCheckout);
     form.addEventListener("input", (e) => { e.target.classList.remove("invalid"); $("#co-error").textContent = ""; });
     form.addEventListener("submit", submitCheckout);
+    $("#co-apply").onclick = applyCoupon;
+    $("#co-code").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); applyCoupon(); } });
     document.addEventListener("keydown", (e) => { if (e.key === "Escape") { closeModals(); closeCart(); } });
     window.addEventListener("popstate", route);
   }
