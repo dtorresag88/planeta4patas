@@ -14,7 +14,8 @@
     return ["Activo", "b-green"];
   };
   const dSummary = (d) => (d.kind === "percent" ? `${d.value}% de descuento` : d.kind === "fixed" ? `${clp(d.value)} de descuento` : "Despacho gratis") +
-    (d.min_subtotal ? ` · compras desde ${clp(d.min_subtotal)}` : "") + (d.once_per_customer ? " · 1 vez por cliente" : "");
+    (d.min_subtotal ? ` · compras desde ${clp(d.min_subtotal)}` : "") + (d.once_per_customer ? " · 1 vez por cliente" : "") +
+    (d.first_order_only ? " · solo primera compra" : "") + (d.subscribers_only ? " · solo suscriptores" : "");
   const toLocal = (iso) => { if (!iso) return ""; const d = new Date(iso); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 16); };
   const randomCode = () => "P4P" + Math.random().toString(36).slice(2, 7).toUpperCase();
 
@@ -39,6 +40,8 @@
           <label class="f">Hasta <small>Vacío = sin fecha de término</small><input name="ends_at" type="datetime-local" value="${toLocal(d?.ends_at)}"></label>
         </div>
         <label class="check"><input type="checkbox" name="once_per_customer" ${d?.once_per_customer ? "checked" : ""}> Una vez por cliente (según correo)</label>
+        <label class="check"><input type="checkbox" name="first_order_only" ${d?.first_order_only ? "checked" : ""}> Solo en la primera compra del cliente</label>
+        <label class="check"><input type="checkbox" name="subscribers_only" ${d?.subscribers_only ? "checked" : ""}> Solo para suscriptores (correos registrados en el pop-up)</label>
         <label class="check"><input type="checkbox" name="active" ${d ? (d.active ? "checked" : "") : "checked"}> Activo</label>
         <p class="form-error" id="df-err"></p></form>`,
       foot: `${d ? `<button class="btn btn-plain danger" id="df-del" style="margin-right:auto">Eliminar</button>` : ""}<button class="btn" data-x>Cancelar</button><button class="btn btn-primary" id="df-save">Guardar</button>`,
@@ -60,7 +63,7 @@
           code, description: f.description.value.trim() || null, kind: f.kind.value, value,
           min_subtotal: Math.max(0, A.int(f.min_subtotal.value) || 0), usage_limit: A.int(f.usage_limit.value) || null,
           starts_at: f.starts_at.value ? new Date(f.starts_at.value).toISOString() : null, ends_at: f.ends_at.value ? new Date(f.ends_at.value).toISOString() : null,
-          once_per_customer: f.once_per_customer.checked, active: f.active.checked,
+          once_per_customer: f.once_per_customer.checked, first_order_only: f.first_order_only.checked, subscribers_only: f.subscribers_only.checked, active: f.active.checked,
         };
         try {
           if (d) await A.q(A.sb.from("discounts").update(row).eq("id", d.id)); else await A.q(A.sb.from("discounts").insert(row));
@@ -94,7 +97,7 @@
       <div class="card flush"><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Código</th><th>Estado</th><th class="num">Usos</th><th class="hide-sm">Vigencia</th><th></th></tr></thead><tbody id="d-body"><tr><td colspan="5"><div class="spinner"></div></td></tr></tbody></table></div></div>
       <div class="card" style="margin-top:16px"><h2 style="margin-bottom:8px">💡 Ideas de campañas</h2>
         <ul style="margin:0;padding-left:18px;line-height:1.8">
-          <li><b>BIENVENIDA10</b>: 10% en la primera compra, una vez por cliente. Publícalo en tu biografía de Instagram.</li>
+          <li><b>BIENVENIDA10</b>: 10% en la primera compra, solo para quienes se registran en el <a href="#/popup">pop-up promocional</a>.</li>
           <li><b>DESPACHOGRATIS</b>: despacho gratis desde $35.000 para mover el ticket promedio.</li>
           <li><b>VUELVE5000</b>: $5.000 para clientes que no compran hace 60 días (filtra en Clientes → "Sin comprar hace 60+ días").</li>
         </ul></div></div>`);

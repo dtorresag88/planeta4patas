@@ -17,6 +17,19 @@
     <div class="card flush" style="margin-bottom:16px"><div class="tabs" style="border:0;padding:6px 8px">${TABS.map(([k, l]) => `<button data-go="${k}" class="${k === tab ? "on" : ""}">${l}</button>`).join("")}</div></div>
     ${body}</div>`;
 
+  // Mensaje listo para enviar a la persona invitada
+  const shareInvite = (email) => {
+    const url = location.href.split("#")[0];
+    const txt = `¡Hola! Te di acceso al panel de administración de Planeta 4 Patas 🐾
+
+1. Entra a ${url}
+2. Pulsa "¿Primera vez? Crear cuenta" y usa este correo: ${email}
+3. Confirma el correo que te llega y vuelve a ingresar.`;
+    const m = A.modal({ title: "Invitación creada ✓", body: `<p style="margin-top:0">Envíale estas instrucciones a <b>${esc(email)}</b>:</p><textarea rows="7" id="inv-t">${esc(txt)}</textarea>`,
+      foot: `<a class="btn btn-green" target="_blank" rel="noopener" href="https://wa.me/?text=${encodeURIComponent(txt)}">Enviar por WhatsApp</a><a class="btn" href="mailto:${esc(email)}?subject=${encodeURIComponent("Acceso al panel de Planeta 4 Patas")}&body=${encodeURIComponent(txt)}">Enviar por correo</a><button class="btn btn-primary" id="inv-copy">Copiar</button>` });
+    m.el.querySelector("#inv-copy").onclick = async () => { try { await navigator.clipboard.writeText(m.el.querySelector("#inv-t").value); A.toast("Copiado"); } catch { m.el.querySelector("#inv-t").select(); } };
+  };
+
   const bindTabs = () => $$("[data-go]").forEach((b) => (b.onclick = () => A.go(`/configuracion/${b.dataset.go}`)));
 
   async function render(tab) {
@@ -163,26 +176,31 @@
     if (tab === "equipo") {
       const team = await A.rpc("admin_team");
       A.render(shell(tab, `<div class="stack">
-        <div class="card flush"><div class="card-head" style="padding:16px 16px 0"><h2>Personas con acceso al panel</h2><button class="btn btn-primary btn-sm" id="t-inv">Invitar persona</button></div>
+        <div class="card flush"><div class="card-head" style="padding:16px 16px 0"><h2>Personas con acceso al panel</h2><button class="btn btn-primary btn-sm" id="t-inv">＋ Agregar administrador</button></div>
           <div class="tbl-wrap"><table class="tbl"><tbody>${team.map((t) => `<tr><td><div class="pcell"><span class="avatar">${esc(A.initials(t.email))}</span><div><b>${esc(t.email)}</b><small class="muted">${t.pending ? "Invitación pendiente: debe crear su cuenta en el panel" : t.last_sign_in_at ? `Último ingreso ${A.ago(t.last_sign_in_at)}` : "Aún no ingresa"}</small></div></div></td>
-            <td class="num">${t.pending ? A.badge("Pendiente", "b-amber") : t.user_id === A.state.user?.id ? A.badge("Tú", "b-info") : A.badge("Administrador", "b-green")}</td></tr>`).join("")}</tbody></table></div></div>
+            <td class="num nowrap">${t.pending ? A.badge("Pendiente", "b-amber") : t.user_id === A.state.user?.id ? A.badge("Tú", "b-info") : A.badge("Administrador", "b-green")}
+              ${t.user_id === A.state.user?.id ? "" : `<button class="btn btn-sm btn-plain danger" data-rm="${esc(t.email)}">${t.pending ? "Cancelar invitación" : "Quitar acceso"}</button>`}</td></tr>`).join("")}</tbody></table></div></div>
         <div class="card"><h2 style="margin-bottom:8px">¿Cómo invito a alguien?</h2>
-          <ol style="margin:0;padding-left:18px;line-height:1.8"><li>Pulsa <b>Invitar persona</b> y escribe su correo.</li>
+          <ol style="margin:0;padding-left:18px;line-height:1.8"><li>Pulsa <b>Agregar administrador</b> y escribe su correo.</li>
           <li>Envíale el enlace del panel: <a href="${esc(location.href.split("#")[0])}">${esc(location.href.split("#")[0])}</a></li>
           <li>Esa persona elige <b>Crear cuenta</b> con ese mismo correo, confirma el correo que le llega y entra.</li></ol>
-          <p class="help">Para quitar el acceso a alguien, escríbele a quien administra Supabase (Authentication → Users).</p></div>
+          <p class="help">Todas las personas del equipo tienen acceso completo. Puedes quitar el acceso en cualquier momento con <b>Quitar acceso</b> y volver a invitarla después.</p></div>
       </div>`));
       bindTabs();
+      $$("[data-rm]").forEach((b) => (b.onclick = async () => {
+        if (!(await A.confirm({ title: "Quitar acceso al panel", message: `${b.dataset.rm} ya no podrá entrar al panel. Puedes volver a invitarla cuando quieras.`, ok: "Quitar acceso", danger: true }))) return;
+        try { await A.rpc("admin_remove", { p_email: b.dataset.rm }); A.toast("Acceso quitado"); render("equipo"); } catch (err) { A.fail(err); }
+      }));
       $("#t-inv").onclick = async () => {
-        const r = await A.ask({ title: "Invitar persona al panel", ok: "Invitar", fields: [{ name: "email", label: "Correo", type: "email", required: true }],
+        const r = await A.ask({ title: "Agregar administrador", ok: "Agregar", fields: [{ name: "email", label: "Correo", type: "email", required: true }],
           intro: "Tendrá acceso completo: pedidos, productos, clientes y configuración." });
         if (!r) return;
-        try { const res = await A.rpc("admin_invite", { p_email: r.email }); A.toast(res === "added" ? "Ya tiene acceso al panel" : "Invitación creada"); render("equipo"); }
+        try { const res = await A.rpc("admin_invite", { p_email: r.email }); if (res === "added") A.toast("Listo: ya tiene acceso al panel"); else shareInvite(r.email); render("equipo"); }
         catch (err) { A.fail(err); }
       };
     }
   }
 
   A.route("/configuracion", "configuracion", () => render("general"));
-  A.route("/configuracion/:tab", "configuracion", ({ tab }) => render(TABS.some(([k]) => k === tab) ? tab : "general"));
+  A.route("/configuracion/:tab", ({ tab }) => (tab === "equipo" ? "equipo" : "configuracion"), ({ tab }) => render(TABS.some(([k]) => k === tab) ? tab : "general"));
 })();

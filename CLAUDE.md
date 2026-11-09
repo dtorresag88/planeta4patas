@@ -31,10 +31,11 @@ Tienda online del pet shop Planeta 4 Patas (Vicuña Mackenna 10492, La Florida, 
 
 ## Despliegue actual
 - Sitio: https://dtorresag88.github.io/planeta4patas/ (GitHub Pages, repo público dtorresag88/planeta4patas, rama main). Panel: `/admin.html`.
-- Supabase: proyecto `nfwezvfzmbxkjptubdvi`. Migraciones 001–006 aplicadas; funciones (checkout, mp-webhook, webpay-return, admin-tools, import-images) con verify_jwt=false.
+- Supabase: proyecto `nfwezvfzmbxkjptubdvi`. Migraciones 001–008 aplicadas; funciones (checkout, mp-webhook, webpay-return, admin-tools, import-images) con verify_jwt=false.
 - Panel modular: `assets/admin/core.js` (utilidades, router hash `#/ruta`, modales `A.modal/A.ask/A.confirm`, `A.setDirty` barra de guardado) + un archivo por sección. Todo cuelga de `window.A`.
 - Config de tienda y pagos en `store_settings` (editable desde el panel). Credenciales de pago en Vault vía `set_payment_secret` (admin) / `get_payment_secret` (solo service_role).
-- Admins: tabla `admins`; invitaciones en `admin_invites` + `claim_admin_invite()` al iniciar sesión (requiere correo confirmado).
+- Pop-up promocional: columnas `popup_*` en `store_settings`; datos en `subscribers` vía RPC pública `subscribe()`; descuentos con `first_order_only` / `subscribers_only`. `?popup=1` fuerza la vista previa en la tienda.
+- Admins: tabla `admins` (`disabled_at` = acceso quitado, `admin_remove()`); invitaciones en `admin_invites` + `claim_admin_invite()` al iniciar sesión (requiere correo confirmado).
 - Funciones admin (`set_stock`, `admin_mark_paid`, `cancel_order`, `create_manual_order`, `admin_invite`, `admin_team`) validan `is_admin()` internamente.
 - Pruebas: arnés Playwright con backend simulado (no hay usuario admin de prueba). Probar a 375 px.
 

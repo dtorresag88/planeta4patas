@@ -32,13 +32,19 @@ Mientras no haya un medio de pago activo, la tienda **sigue vendiendo**: el bot�
 | **Inventario** | Stock de todos los formatos con +/−, motivo del ajuste e **historial de movimientos** (ventas, cancelaciones, ajustes, importaciones). |
 | **Categorías** | Crear, editar, ordenar (orden de la tienda) y eliminar. |
 | **Clientes** | Generados automáticamente desde los pedidos: total gastado, n° de pedidos, recurrentes, mejores clientes, inactivos +60 días, notas y etiquetas, lo que más compra, botón "recordar reposición" por WhatsApp, exportar. |
-| **Descuentos** | Códigos por % / monto fijo / despacho gratis, compra mínima, fechas, límite de usos, una vez por cliente. Botón para compartir por WhatsApp. |
+| **Suscriptores** | Personas que dejaron sus datos en el pop-up: nombre, correo, WhatsApp, mascota, si ya compraron. Filtros, WhatsApp directo y exportar a Excel. |
+| **Descuentos** | Códigos por % / monto fijo / despacho gratis, compra mínima, fechas, límite de usos, una vez por cliente, **solo primera compra** y **solo suscriptores**. Botón para compartir por WhatsApp. |
+| **Pop-up promocional** | Ventana que aparece a los visitantes nuevos ofreciendo una promoción a cambio de sus datos. Título, texto, imagen, botón, código que se entrega, datos que se piden, segundos de espera y frecuencia, con vista previa. Viene listo con **BIENVENIDA10** (10% solo primera compra, solo suscriptores); se activa con un interruptor. |
 | **Análisis** | Cualquier rango de fechas: ventas, descuentos, conversión del pago, clientes que repiten, más vendidos, por categoría, medio de pago, comuna, canal, día de la semana y hora. Exportar ventas por línea. |
-| **Configuración** | General (datos, barra de anuncios, alerta de stock), **Pagos** (Mercado Pago, transferencia, Webpay), Despacho (costo, gratis desde, comunas y días, retiro) y **Equipo** (invitar personas). |
+| **Configuración** | General (datos, barra de anuncios, alerta de stock), **Pagos** (Mercado Pago, transferencia, Webpay), Despacho (costo, gratis desde, comunas y días, retiro) y **Equipo** (agregar administradores y quitar acceso). |
 
 Extras: búsqueda global (tecla `/`), aviso con sonido y notificación al entrar un pedido pagado, contador de pedidos por preparar, funciona en el celular.
 
 ---
+
+## 👥 Agregar administradores
+
+Menú **Configuración → Administradores** → **＋ Agregar administrador** → escribe su correo. El panel te da un mensaje listo para enviarle por WhatsApp o correo; la persona entra a `admin.html`, elige **Crear cuenta** con ese correo, lo confirma e ingresa. Para sacar a alguien: **Quitar acceso** (se puede volver a invitar).
 
 ## 🛍️ Mejoras de la tienda
 

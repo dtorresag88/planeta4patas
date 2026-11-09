@@ -404,6 +404,7 @@
     sel.innerHTML = state.settings.delivery_zones.map((z) => `<option>${esc(z.comuna)}</option>`).join("");
     $("#co-error").textContent = "";
     renderCheckout();
+    prefillFromPromo();
     $("#checkout-modal").hidden = false;
     document.body.style.overflow = "hidden";
   }
@@ -576,6 +577,100 @@
     }
   }
 
+  // ---------------------------------------------------------------- pop-up promocional
+  const PROMO_KEY = "p4p_promo_v1";
+  const promoGet = () => { try { return JSON.parse(localStorage.getItem(PROMO_KEY)) || {}; } catch { return {}; } };
+  const promoSet = (o) => { try { localStorage.setItem(PROMO_KEY, JSON.stringify({ ...promoGet(), ...o })); } catch { /* sin almacenamiento */ } };
+  const busy = () => !$("#order-view").hidden || !$("#checkout-modal").hidden || !$("#product-modal").hidden || $("#cart").classList.contains("open");
+
+  function setupPromo() {
+    const s = state.settings;
+    const force = new URLSearchParams(location.search).has("popup"); // vista previa desde el panel
+    if (!LIVE || (!s.popup_enabled && !force)) return;
+    const ps = promoGet();
+    if (!force && (ps.subscribed || (ps.closedAt && Date.now() - ps.closedAt < (s.popup_frequency_days || 7) * 864e5))) return;
+    let shown = false, waiting = false;
+    const show = () => {
+      if (shown || waiting) return;
+      if (busy()) { waiting = true; setTimeout(() => { waiting = false; show(); }, 4000); return; } // no interrumpir una compra
+      shown = true; openPromo();
+    };
+    setTimeout(show, force ? 300 : Math.max(0, s.popup_delay ?? 6) * 1000);
+    if (matchMedia("(pointer: fine)").matches) document.addEventListener("mouseout", (e) => { if (!e.relatedTarget && e.clientY <= 0) show(); });
+  }
+
+  function openPromo() {
+    const s = state.settings, el = $("#promo");
+    el.innerHTML = `<div class="promo-box">
+      <button class="promo-x" type="button" data-promo-close aria-label="Cerrar">✕</button>
+      ${s.popup_image ? `<img class="promo-img" src="${esc(s.popup_image)}" alt="">` : `<div class="promo-emo" aria-hidden="true">🐾</div>`}
+      <div class="promo-body" id="promo-body">
+        <h2 id="promo-title">${esc(s.popup_title || "¡Únete a la manada! 🐾")}</h2>
+        ${s.popup_text ? `<p>${esc(s.popup_text)}</p>` : ""}
+        <form id="promo-form" novalidate>
+          <input name="name" placeholder="Tu nombre" autocomplete="given-name" maxlength="80" aria-label="Tu nombre">
+          <input name="email" type="email" placeholder="Tu correo" autocomplete="email" maxlength="120" aria-label="Tu correo">
+          ${s.popup_ask_phone ? `<input name="phone" type="tel" placeholder="WhatsApp (opcional)" autocomplete="tel" maxlength="20" aria-label="WhatsApp">` : ""}
+          ${s.popup_ask_pet ? `<fieldset class="promo-pets"><legend>¿Qué mascota tienes?</legend>
+            ${[["perro", "🐶 Perro"], ["gato", "🐱 Gato"], ["ambos", "🐶🐱 Ambos"], ["otro", "🐾 Otro"]].map(([v, l]) => `<label><input type="radio" name="pet" value="${v}"><span>${l}</span></label>`).join("")}</fieldset>` : ""}
+          <p class="promo-err" id="promo-err" role="alert"></p>
+          <button class="btn btn-orange btn-block" type="submit">${esc(s.popup_button || "Quiero mi descuento")}</button>
+          <small class="promo-legal">Al registrarte aceptas recibir novedades y promociones de ${esc(s.store_name || "Planeta 4 Patas")}. Puedes pedir la baja cuando quieras.</small>
+        </form>
+        <button class="promo-no" type="button" data-promo-close>No, gracias</button>
+      </div></div>`;
+    el.hidden = false;
+    document.body.style.overflow = "hidden";
+    setTimeout(() => el.classList.add("show"), 10);
+    $("#promo-form").addEventListener("submit", submitPromo);
+  }
+
+  function closePromo() {
+    const el = $("#promo");
+    if (el.hidden) return;
+    if (!promoGet().subscribed) promoSet({ closedAt: Date.now() });
+    el.hidden = true; el.classList.remove("show");
+    if ($("#checkout-modal").hidden && $("#product-modal").hidden) document.body.style.overflow = "";
+  }
+
+  async function submitPromo(e) {
+    e.preventDefault();
+    const f = e.target, err = $("#promo-err"), btn = f.querySelector("button[type=submit]");
+    const name = f.elements.name.value.trim(), email = f.elements.email.value.trim();
+    f.querySelectorAll(".invalid").forEach((x) => x.classList.remove("invalid"));
+    if (!name) { f.elements.name.classList.add("invalid"); err.textContent = "Cuéntanos tu nombre"; return; }
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]{2,}$/.test(email)) { f.elements.email.classList.add("invalid"); err.textContent = "Revisa que tu correo esté bien escrito"; return; }
+    err.textContent = ""; btn.disabled = true; btn.textContent = "Enviando…";
+    try {
+      const r = await rest("rpc/subscribe", { method: "POST", body: JSON.stringify({
+        p_email: email, p_name: name, p_phone: f.elements.phone?.value.trim() || null, p_pet: f.elements.pet?.value || null, p_source: "popup" }) });
+      if (!r.ok) throw new Error(r.error);
+      promoSet({ subscribed: true, email, name, code: r.code || null });
+      const s = state.settings;
+      $("#promo-body").innerHTML = `<h2 id="promo-title">¡Gracias, ${esc(name.split(" ")[0])}! 🎉</h2>
+        ${r.code ? `<p>${esc(s.popup_success || "Usa este código al pagar:")}</p>
+          <div class="promo-code"><b>${esc(r.code)}</b><button class="btn btn-blue" type="button" id="promo-copy">Copiar</button></div>
+          <p class="promo-legal">Lo aplicamos automáticamente al pagar. Usa el mismo correo (${esc(email)}).</p>`
+          : `<p>Te avisaremos de nuestras novedades y promociones.</p>`}
+        <button class="btn btn-orange btn-block" type="button" data-promo-close>Ir a comprar</button>`;
+      $("#promo-copy")?.addEventListener("click", async () => {
+        try { await navigator.clipboard.writeText(r.code); toast("Código copiado ✓"); } catch { toast(`Tu código: ${r.code}`); }
+      });
+    } catch (ex) {
+      err.textContent = ex.message && !/^\{/.test(ex.message) ? ex.message : "No pudimos registrarte. Intenta de nuevo.";
+      btn.disabled = false; btn.textContent = state.settings.popup_button || "Quiero mi descuento";
+    }
+  }
+
+  // Al abrir el checkout: completa correo/nombre y aplica el código del pop-up
+  function prefillFromPromo() {
+    const ps = promoGet(), f = $("#checkout-form");
+    if (!ps.subscribed) return;
+    if (ps.email && !f.email.value) f.email.value = ps.email;
+    if (ps.name && !f.elements.name.value) f.elements.name.value = ps.name;
+    if (ps.code && !state.discount && !$("#co-code").value) { $("#co-code").value = ps.code; applyCoupon(); }
+  }
+
   // ---------------------------------------------------------------- events
   function bind() {
     document.addEventListener("click", (e) => {
@@ -624,7 +719,8 @@
     form.addEventListener("submit", submitCheckout);
     $("#co-apply").onclick = applyCoupon;
     $("#co-code").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); applyCoupon(); } });
-    document.addEventListener("keydown", (e) => { if (e.key === "Escape") { closeModals(); closeCart(); } });
+    document.addEventListener("keydown", (e) => { if (e.key === "Escape") { if (!$("#promo").hidden) return closePromo(); closeModals(); closeCart(); } });
+    $("#promo").addEventListener("click", (e) => { if (e.target.id === "promo" || e.target.closest("[data-promo-close]")) closePromo(); });
     window.addEventListener("popstate", route);
   }
 
@@ -637,5 +733,6 @@
       $("#grid").innerHTML = `<p class="empty">No pudimos cargar los productos. Recarga la página 🐾</p>`;
     }
     renderStatic(); renderGrid(); renderCart(); route();
+    setupPromo();
   })();
 })();
