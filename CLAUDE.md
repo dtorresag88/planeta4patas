@@ -31,11 +31,12 @@ Tienda online del pet shop Planeta 4 Patas (Vicuña Mackenna 10492, La Florida, 
 
 ## Despliegue actual
 - Sitio: https://dtorresag88.github.io/planeta4patas/ (GitHub Pages, repo público dtorresag88/planeta4patas, rama main). Panel: `/admin.html`.
-- Supabase: proyecto `nfwezvfzmbxkjptubdvi`. Migraciones 001–013 aplicadas; funciones (checkout, mp-webhook, webpay-return, admin-tools, import-images, marketing) con verify_jwt=false. pg_cron: liberar reservas cada 5 min y recompra diaria.
+- Supabase: proyecto `nfwezvfzmbxkjptubdvi`. Migraciones 001–014 aplicadas; funciones (checkout, mp-webhook, webpay-return, admin-tools, import-images, marketing, meta) con verify_jwt=false. pg_cron: liberar reservas cada 5 min y recompra diaria.
 - Precios: `price_cart(items, email, code, delivery)` es la fuente única (promociones → grupo de cliente → cupón → despacho). La tienda la usa para mostrar y `checkout` para cobrar. Después de crear el pedido se llama `reserve_order` (stock reservado; `release_expired_reservations` lo devuelve). `mark_order_paid` cuenta usos de cupón/promo solo la primera vez.
 - Pedidos editados: las líneas quitadas quedan con qty 0 (no se borran filas); filtrar `qty > 0` al mostrar.
 - Correo: secreto `RESEND_API_KEY` en Edge Functions (no en Vault: el control de seguridad bloqueó guardarlo vía SQL). Bajas con `email_tokens`/`unsubscribe()`.
 - Analítica propia: `track()` → `site_events`; `traffic_report()`; `store_settings.analytics_since` descarta datos de prueba. Las pruebas Playwright deben interceptar `rpc/track` y `rpc/log_search`.
+- Meta: `store_settings.meta_pixel_id/meta_consent/meta_test_event_code`. La tienda carga fbq (con aviso de cookies si `meta_consent`) y manda `meta` (fbp, fbc, consentimiento) al checkout, que guarda IP/UA en `orders.meta`. El trigger `orders_notify_meta` (al fijarse `paid_at` en pedidos web) llama a la función `meta`, que envía Purchase por la API de Conversiones una vez (`meta_sent_at`). eventID común `purchase-<número>` para deduplicar. Token: secreto `META_CAPI_TOKEN`. content_id = id del producto (igual al catálogo `?feed=1`).
 - CSS: la clase `.promo` es el overlay del pop-up (position fixed): no reutilizarla (la etiqueta de promoción es `.badge-promo`).
 - Panel modular: `assets/admin/core.js` (utilidades, router hash `#/ruta`, modales `A.modal/A.ask/A.confirm`, `A.setDirty` barra de guardado) + un archivo por sección. Todo cuelga de `window.A`.
 - Config de tienda y pagos en `store_settings` (editable desde el panel). Credenciales de pago en Vault vía `set_payment_secret` (admin) / `get_payment_secret` (solo service_role).

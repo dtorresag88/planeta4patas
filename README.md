@@ -43,6 +43,7 @@ Mientras no haya un medio de pago activo, la tienda **sigue vendiendo**: el bot�
 | **Grupos y precios especiales** | Criaderos, veterinarias o mayoristas con % de descuento y/o despacho gratis. Se aplica al pagar con su correo. |
 | **Campañas de correo** | Diseña correos con imagen, código y botón; elige la audiencia (suscriptores, clientes, con perro/gato, inactivos…), envíate una prueba y envía. Incluye enlace para darse de baja. |
 | **Tráfico y búsquedas** | Visitas, embudo de compra, de dónde llegan (Instagram, Google, WhatsApp…), celular vs computador, productos más vistos y **lo que buscan y no encuentran**. Sin cookies. |
+| **Meta (Facebook e Instagram)** | Pixel de Meta (visitas, productos vistos, búsquedas, carrito, pago, suscripciones y compras), API de Conversiones desde el servidor (mide compras aunque el cliente use iPhone o pague por transferencia), aviso de cookies opcional y enlace de catálogo para anuncios de productos. En Configuración → Meta. |
 | **Configuración** | General (datos, barra de anuncios, alerta de stock), **Pagos** (Mercado Pago, transferencia, Webpay), Despacho (costo, gratis desde, comunas y días, retiro) y **Equipo** (agregar administradores y quitar acceso). |
 
 Extras: búsqueda global (tecla `/`), aviso con sonido y notificación al entrar un pedido pagado, contador de pedidos por preparar, funciona en el celular y **se instala como app** (menú del navegador → "Agregar a pantalla de inicio").
@@ -91,12 +92,13 @@ index.html, assets/app.js, assets/styles.css      Tienda
 admin.html, assets/admin.css, assets/admin/*.js   Panel (core, home, orders, products, customers, marketing, popup, scanner, growth, settings, boot)
 manifest.webmanifest, admin.webmanifest, sw.js    App instalable (PWA)
 assets/config.js                                  URL y clave pública de Supabase
-supabase/migrations/001…013                        Esquema, RLS, funciones (aplicadas en el proyecto)
+supabase/migrations/001…014                        Esquema, RLS, funciones (aplicadas en el proyecto)
 supabase/functions/checkout                       Crea pedido + pago (MP / Webpay / transferencia) con descuentos
 supabase/functions/mp-webhook                     Confirma pagos de Mercado Pago
 supabase/functions/webpay-return                  Confirma pagos Webpay
 supabase/functions/admin-tools                    Verifica Mercado Pago y hace reembolsos (solo admin)
 supabase/functions/marketing                      Correos (Resend): campañas, recompra diaria, darse de baja
+supabase/functions/meta                           API de Conversiones de Meta (compras) y catálogo CSV (?feed=1)
 supabase/functions/import-images                  Copia fotos externas al Storage (solo admin)
 tools/catalogo.py                                 Genera 002_catalogo.sql y demo-data.js desde el Excel
 ```
@@ -108,6 +110,8 @@ Publicar cambios: `git push` a `main` → GitHub Pages actualiza el sitio en ~1 
 ---
 
 ## ✅ Pendientes recomendados
+
+- **Anuncios de Meta**: pega el ID del pixel en Configuración → Meta. Para la API de Conversiones agrega el secreto `META_CAPI_TOKEN` en Supabase → Edge Functions → Secrets.
 
 - **Correo (campañas y recordatorios)**: crea cuenta gratis en resend.com, verifica tu dominio y agrega el secreto `RESEND_API_KEY` en Supabase → Edge Functions → Secrets. Guía paso a paso en Configuración → Correo.
 

@@ -116,6 +116,7 @@
     if (line) line.qty += qty; else state.cart.push({ variant_id: vid, qty });
     saveCart();
     track("add_to_cart", { product: hit.p.id, value: hit.v.price * qty });
+    fbEvent("AddToCart", { content_ids: [hit.p.id], content_type: "product", content_name: hit.p.name, contents: [{ id: hit.p.id, quantity: qty }], value: hit.v.price * qty, currency: "CLP" });
     const b = $("#open-cart"); b.classList.remove("bump"); void b.offsetWidth; b.classList.add("bump");
     toast(`🐾 ${hit.p.name} agregado`);
   }
@@ -306,7 +307,10 @@
     const promo = productPromo(p);
     $("#suggest").hidden = true;
     const viewed = (openProduct.seen ||= new Set());
-    if (!viewed.has(p.id)) { viewed.add(p.id); track("view_product", { product: p.id }); }
+    if (!viewed.has(p.id)) {
+      viewed.add(p.id); track("view_product", { product: p.id });
+      fbEvent("ViewContent", { content_ids: [p.id], content_type: "product", content_name: p.name, content_category: p.category, value: v.price, currency: "CLP" });
+    }
     const relMinPrice = (x) => Math.min(...x.product_variants.map((y) => y.price));
     if (new URLSearchParams(location.search).get("p") !== p.slug && !new URLSearchParams(location.search).get("pedido")) history.replaceState({}, "", `?p=${encodeURIComponent(p.slug)}`);
     document.title = `${p.name} · Planeta 4 Patas`;
@@ -424,7 +428,12 @@
     prefillFromPromo();
     $("#checkout-modal").hidden = false;
     document.body.style.overflow = "hidden";
-    requote().then(() => track("begin_checkout", { value: totals().total }));
+    requote().then(() => {
+      const t = totals(), ls = cartLines();
+      track("begin_checkout", { value: t.total });
+      fbEvent("InitiateCheckout", { content_ids: [...new Set(ls.map((l) => l.p.id))], content_type: "product",
+        contents: ls.map((l) => ({ id: l.p.id, quantity: l.qty })), num_items: ls.reduce((a, l) => a + l.qty, 0), value: t.total, currency: "CLP" });
+    });
   }
 
   function validate(f) {
@@ -460,6 +469,7 @@
       delivery: { method: f.delivery.value, comuna: f.comuna.value, address: f.address.value, detail: f.detail.value, notes: f.notes.value },
       payment_method: f.payment?.value || "mercadopago",
       discount_code: totals().code || null,
+      meta: metaCheckout(),
     };
 
     if (!LIVE) {
@@ -729,6 +739,7 @@
     if (!LIVE || t.length < 2 || logged.has(t)) return;
     logged.add(t);
     rest("rpc/log_search", { method: "POST", body: JSON.stringify({ p_term: t, p_results: n }) }).catch(() => {});
+    fbEvent("Search", { search_string: t });
   }, 1500);
 
   // ---------------------------------------------------------------- carrito calculado en el servidor
@@ -816,6 +827,9 @@
       localStorage.setItem(k, "1");
     } catch { /* sin almacenamiento */ }
     track("purchase", { value: o.total });
+    const ls = (o.items || []).filter((i) => i.qty > 0 && i.product_id);
+    fbEvent("Purchase", { value: o.total, currency: "CLP", content_type: "product", content_ids: [...new Set(ls.map((i) => i.product_id))],
+      contents: ls.map((i) => ({ id: i.product_id, quantity: i.qty })), num_items: ls.reduce((a, i) => a + i.qty, 0), order_id: String(o.number) }, `purchase-${o.number}`);
   }
   function loadUmami() {
     const id = state.settings.umami_website_id;
@@ -823,6 +837,61 @@
     const sc = document.createElement("script");
     sc.defer = true; sc.src = "https://cloud.umami.is/script.js"; sc.dataset.websiteId = id;
     document.head.appendChild(sc);
+  }
+
+  // ---------------------------------------------------------------- Pixel de Meta (Facebook / Instagram)
+  // Eventos del navegador con fbq + datos (fbp, fbc) para que el servidor envíe la compra por la API de Conversiones.
+  // La compra usa el mismo eventID en ambos lados ("purchase-<n°>") para que Meta no la cuente dos veces.
+  const CONSENT_KEY = "p4p_cookies_v1";
+  const metaId = () => (LIVE ? String(state.settings.meta_pixel_id || "").trim() : "");
+  const consent = () => { try { return localStorage.getItem(CONSENT_KEY); } catch { return null; } };
+  const metaAllowed = () => !!metaId() && (!state.settings.meta_consent || consent() === "si");
+  const cookieGet = (n) => { const m = document.cookie.match(new RegExp("(?:^|; )" + n + "=([^;]*)")); return m ? decodeURIComponent(m[1]) : ""; };
+  function loadMeta() {
+    if (!metaAllowed() || window.fbq) return;
+    /* eslint-disable */
+    !function (f, b, e, v, n, t, s) { if (f.fbq) return; n = f.fbq = function () { n.callMethod ? n.callMethod.apply(n, arguments) : n.queue.push(arguments); };
+      if (!f._fbq) f._fbq = n; n.push = n; n.loaded = !0; n.version = "2.0"; n.queue = []; t = b.createElement(e); t.async = !0; t.src = v;
+      s = b.getElementsByTagName(e)[0]; s.parentNode.insertBefore(t, s); }(window, document, "script", "https://connect.facebook.net/en_US/fbevents.js");
+    /* eslint-enable */
+    const em = promoGet().email;
+    window.fbq("init", metaId(), em ? { em: String(em).trim().toLowerCase() } : {});
+    window.fbq("track", "PageView");
+  }
+  function fbEvent(name, data, eventID) {
+    if (!window.fbq || !metaAllowed()) return;
+    try { window.fbq("track", name, data || {}, eventID ? { eventID } : undefined); } catch { /* sin pixel */ }
+  }
+  function metaUser(email) {
+    if (!window.fbq || !metaAllowed() || !email) return;
+    try { window.fbq("init", metaId(), { em: String(email).trim().toLowerCase() }); } catch { /* sin pixel */ }
+  }
+  function metaCheckout() {
+    if (!metaId()) return undefined;
+    let fbc = cookieGet("_fbc");
+    try { fbc ||= localStorage.getItem("p4p_fbc") || ""; } catch { /* sin almacenamiento */ }
+    return { fbp: cookieGet("_fbp") || undefined, fbc: fbc || undefined, url: location.origin + location.pathname, consent: metaAllowed() };
+  }
+  function setupMeta() {
+    if (!metaId()) return;
+    // Guarda el clic del anuncio (fbclid) aunque la URL cambie o el cliente acepte cookies más tarde
+    const fbclid = new URLSearchParams(location.search).get("fbclid");
+    if (fbclid) { try { localStorage.setItem("p4p_fbc", `fb.1.${Date.now()}.${fbclid}`); } catch { /* sin almacenamiento */ } }
+    if (state.settings.meta_consent && !consent()) {
+      const bar = document.createElement("div");
+      bar.className = "cookie-bar"; bar.setAttribute("role", "region"); bar.setAttribute("aria-label", "Aviso de cookies");
+      bar.innerHTML = `<p>🍪 Usamos cookies de Meta (Facebook e Instagram) para medir nuestros anuncios y mostrarte ofertas que te sirvan.</p>
+        <div><button type="button" class="btn btn-ghost btn-sm" data-ck="no">No, gracias</button><button type="button" class="btn btn-blue btn-sm" data-ck="si">Aceptar</button></div>`;
+      bar.addEventListener("click", (e) => {
+        const b = e.target.closest("[data-ck]"); if (!b) return;
+        try { localStorage.setItem(CONSENT_KEY, b.dataset.ck); } catch { /* sin almacenamiento */ }
+        bar.remove();
+        if (b.dataset.ck === "si") loadMeta();
+      });
+      document.body.appendChild(bar);
+      return;
+    }
+    loadMeta();
   }
 
   // ---------------------------------------------------------------- pop-up promocional
@@ -896,6 +965,8 @@
       if (!r.ok) throw new Error(r.error);
       promoSet({ subscribed: true, email, name, code: r.code || null });
       track("popup_submit");
+      fbEvent("Lead", { content_name: "Pop-up promocional" });
+      metaUser(email);
       const s = state.settings;
       $("#promo-body").innerHTML = `<h2 id="promo-title">¡Gracias, ${esc(name.split(" ")[0])}! 🎉</h2>
         ${r.code ? `<p>${esc(s.popup_success || "Usa este código al pagar:")}</p>
@@ -1002,6 +1073,7 @@
     requote();
     trackVisit();
     loadUmami();
+    setupMeta();
     if ("serviceWorker" in navigator && location.protocol === "https:") navigator.serviceWorker.register("sw.js").catch(() => {});
   })();
 })();

@@ -3,7 +3,7 @@
    ===================================================================== */
 (() => {
   const { $, $$, esc, clp } = A;
-  const TABS = [["general", "🏪 General"], ["pagos", "💳 Pagos"], ["despacho", "🚚 Despacho y retiro"], ["ventas", "🛒 Ventas"], ["correo", "✉️ Correo"], ["equipo", "👥 Equipo"]];
+  const TABS = [["general", "🏪 General"], ["pagos", "💳 Pagos"], ["despacho", "🚚 Despacho y retiro"], ["ventas", "🛒 Ventas"], ["correo", "✉️ Correo"], ["meta", "📈 Meta (anuncios)"], ["equipo", "👥 Equipo"]];
   const DIAS = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"];
 
   const saveSettings = async (patch, msg = "Configuración guardada") => {
@@ -235,6 +235,81 @@
       };
     }
 
+    if (tab === "meta") {
+      A.render(shell(tab, `<div class="stack"><div class="card"><div class="spinner"></div></div></div>`));
+      bindTabs();
+      let st = { capi: false, sent: 0, last_error: null };
+      try { const { data } = await A.sb.functions.invoke("meta", { body: { action: "status" } }); st = data || st; } catch { /* sin conexión */ }
+      if (!document.querySelector('[data-go="meta"].on')) return;
+      const FN = `${A.CFG.SUPABASE_URL}/functions/v1/meta`;
+      const feed = `${FN}?feed=1`;
+      const pixel = (s.meta_pixel_id || "").trim();
+      A.render(shell(tab, `<div class="stack">
+        <div class="card"><div class="card-head"><h2>Pixel de Meta</h2>${pixel ? A.badge("Activo en la tienda", "b-green") : A.badge("Sin configurar", "b-amber")}</div>
+          <p class="muted" style="margin-top:0">Mide qué ventas vienen de tus anuncios de Facebook e Instagram y permite crear públicos (quienes vieron un producto, agregaron al carrito o compraron).</p>
+          <form id="mt-f" class="stack" style="gap:10px">
+            <label class="f">ID del pixel (conjunto de datos) <small>Número de 15-16 dígitos. Está en Administrador de eventos → Orígenes de datos.</small>
+              <input name="meta_pixel_id" inputmode="numeric" value="${esc(pixel)}" placeholder="123456789012345"></label>
+            <label class="switch"><input type="checkbox" name="meta_consent" ${s.meta_consent ? "checked" : ""}> Pedir permiso de cookies antes de activar el pixel <small class="muted">(recomendado por la nueva ley de datos personales; mide un poco menos)</small></label>
+            <label class="f">Código de prueba (opcional) <small>De "Probar eventos" en el Administrador de eventos. <b>Bórralo cuando termines de probar</b>: mientras esté puesto, las compras del servidor solo aparecen como prueba.</small>
+              <input name="meta_test_event_code" value="${esc(s.meta_test_event_code || "")}" placeholder="TEST12345"></label>
+            <div style="display:flex;justify-content:flex-end"><button class="btn btn-orange">Guardar</button></div>
+          </form>
+          <details style="margin-top:6px"><summary style="cursor:pointer;font-weight:800">Qué se mide</summary>
+            <table class="tbl" style="margin-top:8px"><tbody>
+              <tr><td>PageView</td><td class="muted">Visita a la tienda</td></tr>
+              <tr><td>ViewContent</td><td class="muted">Abre la ficha de un producto</td></tr>
+              <tr><td>Search</td><td class="muted">Busca algo</td></tr>
+              <tr><td>AddToCart</td><td class="muted">Agrega al carrito</td></tr>
+              <tr><td>InitiateCheckout</td><td class="muted">Abre el formulario de pago</td></tr>
+              <tr><td>Lead</td><td class="muted">Deja sus datos en el pop-up</td></tr>
+              <tr><td>Purchase</td><td class="muted">Compra pagada (navegador + servidor, sin duplicar)</td></tr>
+            </tbody></table></details>
+        </div>
+
+        <div class="card"><div class="card-head"><h2>API de Conversiones (servidor)</h2>${st.capi ? A.badge("Conectada", "b-green") : A.badge("No conectada", "b-amber")}</div>
+          <p class="muted" style="margin-top:0">Envía cada compra pagada directo desde el servidor. Así Meta la cuenta aunque el cliente use iPhone, bloqueador de anuncios o pague con transferencia días después. Opcional, pero mejora mucho la medición.</p>
+          ${st.capi ? `<p>Compras enviadas a Meta: <b>${st.sent || 0}</b></p>` : ""}
+          ${st.last_error ? `<div class="banner warn"><span>⚠️</span><div><b>Error al enviar el pedido #${esc(st.last_error.number)}</b>${esc(st.last_error.meta_error)}</div><div class="actions"><button class="btn btn-sm" id="mt-retry">Reintentar</button></div></div>` : ""}
+          ${st.capi && pixel ? `<button class="btn" id="mt-test">Enviar evento de prueba</button>` : ""}
+          <details ${st.capi ? "" : "open"} style="margin-top:14px"><summary style="cursor:pointer;font-weight:800">Cómo conectarla (5 minutos)</summary>
+            <ol style="line-height:1.8;padding-left:18px">
+              <li>En <a href="https://business.facebook.com/events_manager2" target="_blank" rel="noopener">Administrador de eventos</a>, abre tu pixel → <b>Configuración</b>.</li>
+              <li>En <b>API de Conversiones</b> → "Configurar integración directa" → <b>Generar token de acceso</b> y cópialo.</li>
+              <li>En <a href="https://supabase.com/dashboard/project/nfwezvfzmbxkjptubdvi/functions/secrets" target="_blank" rel="noopener">Supabase → Edge Functions → Secrets</a> agrega un secreto llamado <span class="mono">META_CAPI_TOKEN</span> con ese token.</li>
+              <li>Vuelve aquí: debería decir <b>Conectada</b>. Prueba con "Enviar evento de prueba" (necesita el código de prueba de arriba).</li>
+            </ol></details>
+        </div>
+
+        <div class="card"><h2 style="margin-bottom:8px">Catálogo de productos para anuncios</h2>
+          <p class="muted" style="margin-top:0">Con este enlace Meta carga tus productos (foto, precio, stock) y se actualiza solo. Sirve para anuncios de catálogo y para mostrar a cada persona el producto que vio.</p>
+          <div style="display:flex;gap:6px"><input id="mt-feed" class="mono" readonly value="${esc(feed)}"><button class="btn" id="mt-copy">Copiar</button></div>
+          <ol style="line-height:1.8;padding-left:18px;margin-bottom:0">
+            <li>En <a href="https://business.facebook.com/commerce" target="_blank" rel="noopener">Commerce Manager</a> crea un catálogo de tipo <b>Comercio electrónico</b>.</li>
+            <li>Orígenes de datos → <b>Feed de datos</b> → "Actualizaciones programadas" → pega el enlace y elige <b>cada día</b>. Moneda: CLP.</li>
+            <li>En la configuración del catálogo, conecta el mismo pixel para que los productos vistos coincidan.</li>
+          </ol>
+        </div>
+
+        <div class="banner info"><span>🌐</span><div><b>Tip:</b> Meta pide verificar el dominio para algunas funciones (por ejemplo, editar eventos para iPhone). Eso requiere un dominio propio (ej: planeta4patas.cl); con la dirección actual de GitHub no se puede verificar, pero el pixel y la API funcionan igual.</div></div>
+      </div>`));
+      bindTabs();
+      $("#mt-f").onsubmit = async (e) => {
+        e.preventDefault(); const f = e.target;
+        const id = f.meta_pixel_id.value.replace(/\s/g, "");
+        if (id && !/^\d{10,20}$/.test(id)) return A.toast("El ID del pixel son solo números (15-16 dígitos)", true);
+        try { await saveSettings({ meta_pixel_id: id || null, meta_test_event_code: f.meta_test_event_code.value.trim() || null, meta_consent: f.meta_consent.checked }); render("meta"); } catch (err) { A.fail(err); }
+      };
+      $("#mt-copy").onclick = async () => { try { await navigator.clipboard.writeText(feed); A.toast("Enlace copiado"); } catch { $("#mt-feed").select(); } };
+      $("#mt-test")?.addEventListener("click", async () => {
+        try { const { data, error } = await A.sb.functions.invoke("meta", { body: { action: "test" } }); if (error || !data?.ok) throw new Error(data?.error || (await error?.context?.json?.().catch(() => null))?.error || "No se pudo enviar"); A.toast("Evento enviado: revisa \"Probar eventos\" en Meta"); }
+        catch (err) { A.fail(err); }
+      });
+      $("#mt-retry")?.addEventListener("click", async () => {
+        try { const { data } = await A.sb.functions.invoke("meta", { body: { action: "retry" } }); A.toast(`Reenviadas: ${data?.sent ?? 0}`); render("meta"); } catch (err) { A.fail(err); }
+      });
+    }
+
     if (tab === "equipo") {
       const team = await A.rpc("admin_team");
       A.render(shell(tab, `<div class="stack">
@@ -264,5 +339,5 @@
   }
 
   A.route("/configuracion", "configuracion", () => render("general"));
-  A.route("/configuracion/:tab", ({ tab }) => (tab === "equipo" ? "equipo" : "configuracion"), ({ tab }) => render(TABS.some(([k]) => k === tab) ? tab : "general"));
+  A.route("/configuracion/:tab", ({ tab }) => (tab === "equipo" || tab === "meta" ? tab : "configuracion"), ({ tab }) => render(TABS.some(([k]) => k === tab) ? tab : "general"));
 })();

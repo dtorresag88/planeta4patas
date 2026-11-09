@@ -112,13 +112,22 @@ Deno.serve(async (req) => {
   const total = subtotal - promoDiscount - discount + shipping;
   if (total <= 0 && payment !== "transferencia") return json({ error: "El total del pedido debe ser mayor a $0" }, 400);
 
+  // ---------- Datos para la API de Conversiones de Meta (solo si hay pixel configurado) ----------
+  const mi = body?.meta ?? {};
+  const meta = String(settings.meta_pixel_id || "").trim() ? {
+    fbp: clean(mi.fbp, 120) || undefined, fbc: clean(mi.fbc, 300) || undefined, url: clean(mi.url, 300) || undefined,
+    consent: mi.consent !== false,
+    ip: (req.headers.get("x-forwarded-for") ?? "").split(",")[0].trim() || undefined,
+    ua: clean(req.headers.get("user-agent"), 400) || undefined,
+  } : null;
+
   // ---------- Crear pedido ----------
   const { data: order, error: oErr } = await db.from("orders").insert({
     payment_method: payment, customer_name: name, customer_email: email, customer_phone: phone,
     customer_rut: rut || null, delivery_method: method, comuna: method === "despacho" ? comuna : null,
     address: method === "despacho" ? address : null, address_detail: addressDetail || null,
     delivery_day: deliveryDay, notes: notes || null, subtotal, shipping, total,
-    discount, discount_code: discountCode, promo_discount: promoDiscount, promotions: cart.promotions ?? [], source: "web",
+    discount, discount_code: discountCode, promo_discount: promoDiscount, promotions: cart.promotions ?? [], source: "web", meta,
   }).select("id, number, access_token").single();
   if (oErr || !order) return json({ error: "No pudimos crear el pedido" }, 500);
 
