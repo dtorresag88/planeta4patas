@@ -20,7 +20,7 @@ Deno.serve(async (req) => {
   const token = (req.headers.get("authorization") ?? "").replace("Bearer ", "");
   const { data: u } = await db.auth.getUser(token);
   if (!u?.user) return json({ error: "No autorizado" }, 401);
-  const { data: admin } = await db.from("admins").select("user_id").eq("user_id", u.user.id).maybeSingle();
+  const { data: admin } = await db.from("admins").select("user_id").eq("user_id", u.user.id).is("disabled_at", null).maybeSingle();
   if (!admin) return json({ error: "No autorizado" }, 403);
 
   const own = `${URL_}/storage/v1/object/public/productos/`;

@@ -18,11 +18,12 @@
   const state = {
     products: [], categories: [],
     settings: { shipping_fee: 1990, free_shipping_from: 60000, delivery_zones: [], pickup_enabled: true },
-    filters: { q: "", species: "", category: "", brand: "", sort: "featured" },
+    filters: { q: "", species: "", category: "", brand: "", sort: "featured", favs: false },
     selected: {}, // productId -> variantId
     limit: 24,
     cart: loadCart(),
-    discount: null, // { code, amount, free_shipping, kind, value }
+    quote: null, quoteKey: "", couponCode: "", // carrito calculado en el servidor (price_cart)
+    promos: [], ratings: {}, favs: loadFavs(), reviews: {},
   };
 
   // Medios de pago disponibles según la configuración del panel
@@ -49,11 +50,16 @@
       $("#demo-bar").hidden = false;
       return;
     }
-    const [products, categories, settings] = await Promise.all([
+    const [products, categories, settings, promos, ratings] = await Promise.all([
       rest("products?select=*,product_variants(*)&active=eq.true&order=name"),
       rest("categories?select=*&order=sort"),
       rest("store_settings?select=*&id=eq.1"),
+      rest("promotions?select=*&active=eq.true&order=sort").catch(() => []),
+      rest("rpc/review_summary", { method: "POST", body: "{}" }).catch(() => ({})),
     ]);
+    const now = Date.now();
+    state.promos = (promos || []).filter((x) => (!x.starts_at || new Date(x.starts_at) <= now) && (!x.ends_at || new Date(x.ends_at) > now));
+    state.ratings = ratings || {};
     products.forEach((p) => {
       p.product_variants = (p.product_variants || []).filter((v) => v.active).sort((a, b) => a.sort - b.sort || a.price - b.price);
     });
@@ -99,6 +105,7 @@
   function saveCart() {
     try { localStorage.setItem(CART_KEY, JSON.stringify(state.cart)); } catch { /* sin almacenamiento */ }
     renderCart();
+    requoteSoon();
   }
   function addToCart(vid, qty = 1) {
     const hit = findVariant(vid);
@@ -108,6 +115,7 @@
     if (hit.v.stock != null && current + qty > hit.v.stock) { toast(`Solo quedan ${hit.v.stock} unidades`); return; }
     if (line) line.qty += qty; else state.cart.push({ variant_id: vid, qty });
     saveCart();
+    track("add_to_cart", { product: hit.p.id, value: hit.v.price * qty });
     const b = $("#open-cart"); b.classList.remove("bump"); void b.offsetWidth; b.classList.add("bump");
     toast(`🐾 ${hit.p.name} agregado`);
   }
@@ -129,15 +137,8 @@
     if (lines.length !== state.cart.length) { state.cart = lines.map(({ variant_id, qty }) => ({ variant_id, qty })); }
     const count = lines.reduce((s, l) => s + l.qty, 0);
     $("#cart-count").textContent = count;
-    const sub = cartSubtotal();
-    $("#cart-subtotal").textContent = clp(sub);
     $("#go-checkout").disabled = !lines.length;
-
-    const free = state.settings.free_shipping_from;
-    const pct = Math.min(100, (sub / free) * 100);
-    $("#free-ship").innerHTML = sub >= free
-      ? `🎉 ¡Tienes <b>despacho GRATIS</b>!<div class="bar"><i style="width:100%"></i></div>`
-      : `🚚 Te faltan <b>${clp(free - sub)}</b> para despacho <b>GRATIS</b><div class="bar"><i style="width:${pct}%"></i></div>`;
+    renderCartTotals();
 
     $("#cart-items").innerHTML = lines.length ? lines.map((l) => `
       <div class="ci">
@@ -160,14 +161,16 @@
     const v = selectedVariant(p);
     const out = p.product_variants.every(isOut);
     const off = v.compare_at_price && v.compare_at_price > v.price ? Math.round((1 - v.price / v.compare_at_price) * 100) : 0;
+    const promo = productPromo(p);
     return `
       <article class="card" data-pid="${p.id}">
         <button class="card-media" data-open="${p.id}" aria-label="Ver ${esc(p.name)}">
           ${media(p)}
-          ${out ? `<span class="badge out">Agotado</span>` : off ? `<span class="badge">-${off}%</span>` : ""}
+          ${out ? `<span class="badge out">Agotado</span>` : promo ? `<span class="badge badge-promo">${esc(promoLabel(promo))}</span>` : off ? `<span class="badge">-${off}%</span>` : ""}
         </button>
+        <button class="fav ${isFav(p.id) ? "on" : ""}" data-fav="${p.id}" aria-label="${isFav(p.id) ? "Quitar de" : "Guardar en"} favoritos" aria-pressed="${isFav(p.id)}">♥</button>
         <div class="card-body">
-          <span class="card-brand">${esc(p.brand || "")}</span>
+          <span class="card-brand">${esc(p.brand || "")}${starsHTML(p)}</span>
           <button class="card-name" data-open="${p.id}">${esc(p.name)}</button>
           ${p.product_variants.length > 1 ? `<div class="variants">${p.product_variants.map((x) =>
             `<button data-variant="${x.id}" data-p="${p.id}" class="${x.id === v.id ? "on" : ""}" ${isOut(x) ? "disabled" : ""}>${esc(x.label)}</button>`).join("")}</div>`
@@ -180,18 +183,22 @@
 
   function filtered() {
     const f = state.filters;
-    const q = f.q.trim().toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
-    let list = state.products.filter((p) => {
+    const base = state.products.filter((p) => {
+      if (f.favs && !isFav(p.id)) return false;
       if (f.species && p.species !== f.species && p.species !== "ambos") return false;
       if (f.category && p.category !== f.category) return false;
       if (f.brand && p.brand !== f.brand) return false;
-      if (q) {
-        const hay = `${p.name} ${p.brand || ""} ${catOf(p.category)?.name || ""} ${p.life_stage || ""} ${p.description || ""} ${(p.tags || []).join(" ")} ${p.product_variants.map((v) => `${v.sku || ""} ${v.label}`).join(" ")}`.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
-        if (!q.split(/\s+/).every((w) => hay.includes(w))) return false;
-      }
       return true;
     });
+    state.fuzzy = false;
+    let list = base;
+    if (f.q.trim()) {
+      list = searchProducts(f.q, base);
+      state.fuzzy = list.fuzzy;
+      if (state.fuzzy && f.sort === "featured") return list;
+    }
     const s = f.sort;
+    list = [...list];
     list.sort((a, b) =>
       s === "price-asc" ? minPrice(a) - minPrice(b) :
       s === "price-desc" ? minPrice(b) - minPrice(a) :
@@ -207,7 +214,9 @@
     $("#more").hidden = rest <= 0;
     $("#more").textContent = `Ver más productos (${rest})`;
     $("#empty").hidden = list.length > 0;
-    $("#result-count").textContent = `${list.length} producto${list.length === 1 ? "" : "s"}`;
+    $("#result-count").textContent = state.fuzzy && list.length ? `${list.length} resultados parecidos a “${state.filters.q.trim()}”`
+      : `${list.length} producto${list.length === 1 ? "" : "s"}${state.filters.favs ? " en tus favoritos ♥" : ""}`;
+    if (state.filters.q.trim()) logSearchSoon(state.filters.q, list.length);
     const offers = state.products.filter(hasOffer);
     $("#ofertas").hidden = !offers.length;
     $("#offers-grid").innerHTML = offers.slice(0, 8).map((p) => {
@@ -294,6 +303,10 @@
     const main = imgs[imgIdx] || null;
     const stockTxt = isOut(v) ? ["no", "Sin stock"] : v.stock != null && v.stock <= 5 ? ["low", `¡Últimas ${v.stock} unidades!`] : ["ok", "✓ Disponible"];
     const rel = related(p);
+    const promo = productPromo(p);
+    $("#suggest").hidden = true;
+    const viewed = (openProduct.seen ||= new Set());
+    if (!viewed.has(p.id)) { viewed.add(p.id); track("view_product", { product: p.id }); }
     const relMinPrice = (x) => Math.min(...x.product_variants.map((y) => y.price));
     if (new URLSearchParams(location.search).get("p") !== p.slug && !new URLSearchParams(location.search).get("pedido")) history.replaceState({}, "", `?p=${encodeURIComponent(p.slug)}`);
     document.title = `${p.name} · Planeta 4 Patas`;
@@ -313,18 +326,24 @@
         <div class="variants">${p.product_variants.map((x) =>
           `<button data-pvariant="${x.id}" data-p="${p.id}" class="${x.id === v.id ? "on" : ""}" ${isOut(x) ? "disabled" : ""}>${esc(x.label)}</button>`).join("")}</div>
         <div class="price-row"><span class="price">${clp(v.price)}</span>${off ? `<span class="compare">${clp(v.compare_at_price)}</span>` : ""}</div>
+        ${promo ? `<div class="pd-promo">🎁 <b>${esc(promo.name)}</b><span>${esc(promoText(promo))}</span></div>` : ""}
         <span class="pd-stock ${stockTxt[0]}">${stockTxt[1]}</span>${v.sku ? `<small class="muted">Código: ${esc(v.sku)}</small>` : ""}
         <div class="pd-buy">
           <div class="qty"><button data-pq="-1" aria-label="Menos">−</button><span id="pd-qty">1</span><button data-pq="1" aria-label="Más">+</button></div>
           <button class="btn btn-orange btn-lg" data-padd="${v.id}" ${isOut(v) ? "disabled" : ""}>Agregar al carrito</button>
         </div>
-        <a class="pd-share" target="_blank" rel="noopener" href="https://wa.me/?text=${encodeURIComponent(`Mira este producto en Planeta 4 Patas 🐾 ${p.name}: ${productUrl(p)}`)}">💬 Compartir por WhatsApp</a>
+        <div class="pd-actions">
+          <button class="pd-fav ${isFav(p.id) ? "on" : ""}" data-fav="${p.id}" aria-pressed="${isFav(p.id)}">♥ ${isFav(p.id) ? "En favoritos" : "Guardar en favoritos"}</button>
+          <a class="pd-share" target="_blank" rel="noopener" href="https://wa.me/?text=${encodeURIComponent(`Mira este producto en Planeta 4 Patas 🐾 ${p.name}: ${productUrl(p)}`)}">💬 Compartir por WhatsApp</a>
+        </div>
       </div>
       ${rel.length ? `<div class="related"><h3>También te puede gustar</h3><div class="related-row">${rel.map((x) => `
-        <button class="rel" data-open="${x.id}"><div class="rel-img">${x.image_url ? `<img src="${esc(x.image_url)}" alt="" loading="lazy">` : placeholder(x)}</div><b>${esc(x.name)}</b><span>${x.product_variants.length > 1 ? "desde " : ""}${clp(relMinPrice(x))}</span></button>`).join("")}</div></div>` : ""}`;
+        <button class="rel" data-open="${x.id}"><div class="rel-img">${x.image_url ? `<img src="${esc(x.image_url)}" alt="" loading="lazy">` : placeholder(x)}</div><b>${esc(x.name)}</b><span>${x.product_variants.length > 1 ? "desde " : ""}${clp(relMinPrice(x))}</span></button>`).join("")}</div></div>` : ""}
+      ${LIVE && state.settings.reviews_enabled !== false ? `<div class="reviews" id="pd-reviews"></div>` : ""}`;
     $("#product-modal").hidden = false;
     $("#product-modal").scrollTop = 0;
     document.body.style.overflow = "hidden";
+    if ($("#pd-reviews")) loadReviews(p);
   }
   function closeModals() {
     $$(".modal").forEach((m) => (m.hidden = true));
@@ -334,41 +353,35 @@
   }
 
   // ---------------------------------------------------------------- checkout
-  function shippingCost() {
-    const f = $("#checkout-form");
-    if (f.delivery.value !== "despacho") return 0;
-    if (state.discount?.free_shipping) return 0;
-    const sub = cartSubtotal();
-    return state.settings.free_shipping_from && sub >= state.settings.free_shipping_from ? 0 : state.settings.shipping_fee;
-  }
-  const discountAmount = () => Math.min(state.discount?.amount || 0, cartSubtotal());
-
   async function applyCoupon() {
     const code = $("#co-code").value.trim().toUpperCase();
     const msg = $("#co-code-msg");
-    if (!code) { state.discount = null; msg.textContent = ""; renderCheckout(); return; }
+    if (!code) { state.couponCode = ""; msg.textContent = ""; await requote(); return; }
     if (!LIVE) { msg.className = "coupon-msg bad"; msg.textContent = "Los códigos funcionan con la tienda conectada"; return; }
     $("#co-apply").disabled = true;
-    try {
-      const d = await rest("rpc/eval_discount", { method: "POST", body: JSON.stringify({ p_code: code, p_subtotal: cartSubtotal(), p_email: $("#checkout-form").email.value.trim() || null }) });
-      if (d.ok) {
-        state.discount = d;
-        msg.className = "coupon-msg ok";
-        msg.textContent = `✓ ${d.kind === "free_shipping" ? "¡Despacho gratis aplicado!" : `Descuento de ${clp(d.amount)} aplicado`}`;
-      } else { state.discount = null; msg.className = "coupon-msg bad"; msg.textContent = d.error; }
-    } catch { msg.className = "coupon-msg bad"; msg.textContent = "No pudimos validar el código"; }
+    state.couponCode = code;
+    await requote(); await settleQuote();
+    const c = state.quote?.coupon;
+    if (c?.ok) {
+      msg.className = "coupon-msg ok";
+      msg.textContent = `✓ ${c.kind === "free_shipping" ? "¡Despacho gratis aplicado!" : `Descuento de ${clp(state.quote.discount)} aplicado`}`;
+    } else {
+      state.couponCode = "";
+      msg.className = "coupon-msg bad"; msg.textContent = c?.error || "No pudimos validar el código";
+      await requote();
+    }
     $("#co-apply").disabled = false;
-    renderCheckout();
   }
 
   function whatsappOrder(f) {
-    const lines = cartLines(), ship = shippingCost(), disc = discountAmount(), sub = cartSubtotal();
+    const lines = cartLines(), t = totals();
     const isShip = f.delivery.value === "despacho";
     const txt = [
       "¡Hola Planeta 4 Patas! 🐾 Quiero hacer este pedido:", "",
       ...lines.map((l) => `• ${l.qty} × ${l.p.name} ${l.v.label}${l.v.sku ? ` [${l.v.sku}]` : ""} — ${clp(l.v.price * l.qty)}`), "",
-      `Subtotal: ${clp(sub)}`, disc ? `Descuento ${state.discount.code}: -${clp(disc)}` : "", isShip ? `Despacho: ${ship ? clp(ship) : "gratis"}` : "Retiro en tienda",
-      `*Total: ${clp(sub - disc + ship)}*`, "",
+      `Subtotal: ${clp(t.sub)}`, ...t.promos.filter((x) => x.amount > 0).map((x) => `${x.name}: -${clp(x.amount)}`),
+      t.disc ? `Descuento ${t.code}: -${clp(t.disc)}` : "", isShip ? `Despacho: ${t.ship ? clp(t.ship) : "gratis"}` : "Retiro en tienda",
+      `*Total: ${clp(t.total)}*`, "",
       `Nombre: ${f.name.value.trim()}`, `Teléfono: ${f.phone.value.trim()}`, `Correo: ${f.email.value.trim()}`,
       isShip ? `Dirección: ${f.address.value.trim()}${f.detail.value.trim() ? `, ${f.detail.value.trim()}` : ""}, ${f.comuna.value}` : "",
       f.notes.value.trim() ? `Comentario: ${f.notes.value.trim()}` : "",
@@ -383,18 +396,22 @@
     $("#ship-fields").hidden = !isShip;
     const zone = state.settings.delivery_zones.find((z) => z.comuna === f.comuna.value);
     $("#ship-day").textContent = zone ? `📅 Despachamos en ${zone.comuna} los días ${zone.dias.join(" y ")}` : "";
-    const sub = cartSubtotal(), ship = shippingCost(), disc = discountAmount();
+    const t = totals();
     $("#co-items").innerHTML = cartLines().map((l) =>
       `<div class="co-line"><span>${l.qty} × ${esc(l.p.name)} ${esc(l.v.label)}</span><span>${clp(l.v.price * l.qty)}</span></div>`).join("");
-    $("#co-subtotal").textContent = clp(sub);
-    $("#co-disc-row").hidden = !disc;
-    $("#co-discount").textContent = `-${clp(disc)}`;
-    $("#co-disc-code").textContent = state.discount?.code ? `(${state.discount.code})` : "";
-    $("#co-shipping").textContent = !isShip ? "Retiro gratis" : ship === 0 ? "¡GRATIS!" : clp(ship);
-    $("#co-total").textContent = clp(sub - disc + ship);
+    $("#co-subtotal").textContent = clp(t.sub);
+    $("#co-promos").innerHTML = t.promos.map((x) => `<div class="row promo-line"><span>🎁 ${esc(x.name)}</span><span>${x.amount ? `-${clp(x.amount)}` : "✓"}</span></div>`).join("");
+    $("#co-disc-row").hidden = !t.disc;
+    $("#co-discount").textContent = `-${clp(t.disc)}`;
+    $("#co-disc-code").textContent = t.code ? `(${t.code})` : "";
+    $("#co-shipping").textContent = !isShip ? "Retiro gratis" : t.ship === 0 ? "¡GRATIS!" : clp(t.ship);
+    const fsf = state.settings.free_shipping_from, after = t.sub - t.promo - t.disc;
+    $("#co-freehint").hidden = !(isShip && t.ship > 0 && fsf > after);
+    $("#co-freehint").textContent = `🚚 Agrega ${clp(fsf - after)} más y el despacho es GRATIS`;
+    $("#co-total").textContent = clp(t.total);
     const pays = payOptions();
     const pm = f.payment?.value;
-    $("#co-submit").textContent = !pays.length ? "💬 Enviar pedido por WhatsApp" : pm === "transferencia" ? `Confirmar pedido · ${clp(sub - disc + ship)}` : `Pagar ${clp(sub - disc + ship)}`;
+    $("#co-submit").textContent = !pays.length ? "💬 Enviar pedido por WhatsApp" : pm === "transferencia" ? `Confirmar pedido · ${clp(t.total)}` : `Pagar ${clp(t.total)}`;
     $(".secure").textContent = !pays.length ? "Te abriremos WhatsApp con tu pedido listo para enviar." : pm === "transferencia" ? "🏦 Te mostraremos los datos para transferir." : "🔒 Serás redirigido al sitio seguro de pago.";
   }
   function openCheckout() {
@@ -407,6 +424,7 @@
     prefillFromPromo();
     $("#checkout-modal").hidden = false;
     document.body.style.overflow = "hidden";
+    requote().then(() => track("begin_checkout", { value: totals().total }));
   }
 
   function validate(f) {
@@ -441,13 +459,13 @@
       customer: { name: f.name.value, email: f.email.value, phone: f.phone.value, rut: f.rut.value },
       delivery: { method: f.delivery.value, comuna: f.comuna.value, address: f.address.value, detail: f.detail.value, notes: f.notes.value },
       payment_method: f.payment?.value || "mercadopago",
-      discount_code: state.discount?.code || null,
+      discount_code: totals().code || null,
     };
 
     if (!LIVE) {
       // Modo demo: simula un pedido pagado
       const lines = cartLines();
-      const sub = cartSubtotal() - discountAmount(), ship = shippingCost();
+      const t = totals(), sub = t.sub - t.promo - t.disc, ship = t.ship;
       sessionDemoOrder = {
         number: 1001, status: "pagado", payment_method: payload.payment_method, customer_name: payload.customer.name,
         delivery_method: payload.delivery.method, comuna: payload.delivery.comuna, address: payload.delivery.address,
@@ -511,7 +529,9 @@
       ? ["🏦", "¡Pedido recibido!", "Transfiere el total para que lo preparemos."]
       : STATUS[o.status] || STATUS.pendiente_pago;
     const ok = ["pagado", "preparando", "despachado", "entregado"].includes(o.status);
-    if (ok) { state.cart = []; saveCart(); }
+    if (ok) { state.cart = []; saveCart(); trackPurchase(o); }
+    const reserved = o.status === "pendiente_pago" && o.reserved_until
+      ? `<p class="muted small">📦 Te reservamos el stock hasta el ${new Date(o.reserved_until).toLocaleString("es-CL", { weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" })}.</p>` : "";
     const entrega = o.delivery_method === "despacho"
       ? `🚚 Despacho a ${esc(o.address || "")}, ${esc(o.comuna || "")}${o.delivery_day ? ` · días de reparto: ${esc(o.delivery_day)}` : ""}`
       : "🏪 Retiro en tienda · Vicuña Mackenna 10492, La Florida";
@@ -520,9 +540,11 @@
       <h1>${title}</h1>
       <p>Pedido <span class="num">#${esc(o.number)}</span> · ${esc(sub)}</p>
       ${o.status === "pendiente_pago" && !transfer ? `<div class="spinner" aria-label="Cargando"></div>` : ""}
+      ${reserved}
       ${transfer ? `<div class="transfer-box"><b>Datos para transferir ${clp(o.total)}</b>\n${esc(o.transfer_info || "Te enviaremos los datos por WhatsApp.")}\n\n<small>Envíanos el comprobante por WhatsApp indicando el pedido #${esc(o.number)}.</small></div>` : ""}
       <div class="order-items">
-        ${(o.items || []).map((i) => `<div class="co-line"><span>${i.qty} × ${esc(i.name)} ${esc(i.variant || "")}</span><span>${clp(i.line_total)}</span></div>`).join("")}
+        ${(o.items || []).filter((i) => i.qty > 0).map((i) => `<div class="co-line"><span>${i.qty} × ${esc(i.name)} ${esc(i.variant || "")}</span><span>${clp(i.line_total)}</span></div>`).join("")}
+        ${(o.promotions || []).filter((x) => x.amount > 0).map((x) => `<div class="co-line"><span>🎁 ${esc(x.name)}</span><span>-${clp(x.amount)}</span></div>`).join("")}
         ${o.discount ? `<div class="co-line"><span>Descuento${o.discount_code ? ` (${esc(o.discount_code)})` : ""}</span><span>-${clp(o.discount)}</span></div>` : ""}
         <div class="co-line"><span>Despacho</span><span>${o.shipping ? clp(o.shipping) : "Gratis"}</span></div>
         <div class="row total"><span>Total</span><b>${clp(o.total)}</b></div>
@@ -577,6 +599,232 @@
     }
   }
 
+  // ---------------------------------------------------------------- utilidades
+  function debounce(fn, ms) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; }
+  const norm = (s) => String(s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+
+  // ---------------------------------------------------------------- favoritos (en este navegador)
+  function loadFavs() { try { return JSON.parse(localStorage.getItem("p4p_favs_v1")) || []; } catch { return []; } }
+  function isFav(id) { return state.favs.includes(id); }
+  function toggleFav(id) {
+    state.favs = isFav(id) ? state.favs.filter((x) => x !== id) : [...state.favs, id];
+    try { localStorage.setItem("p4p_favs_v1", JSON.stringify(state.favs)); } catch { /* sin almacenamiento */ }
+    renderFavCount();
+    if (state.filters.favs && !state.favs.length) state.filters.favs = false;
+    renderGrid();
+    if (!$("#product-modal").hidden) {
+      const b = $("#product-body .pd-fav");
+      if (b) { const on = isFav(id); b.classList.toggle("on", on); b.setAttribute("aria-pressed", on); b.textContent = `♥ ${on ? "En favoritos" : "Guardar en favoritos"}`; }
+    }
+    toast(isFav(id) ? "♥ Guardado en tus favoritos" : "Quitado de favoritos");
+  }
+  function renderFavCount() {
+    const n = state.favs.filter((id) => state.products.some((p) => p.id === id)).length;
+    $("#fav-count").hidden = !n; $("#fav-count").textContent = n;
+    $("#open-favs").classList.toggle("on", state.filters.favs);
+  }
+
+  // ---------------------------------------------------------------- promociones automáticas
+  const promoMatches = (pr, p) => pr.scope === "all" || (pr.scope === "category" && (pr.scope_values || []).includes(p.category))
+    || (pr.scope === "brand" && (pr.scope_values || []).includes(p.brand)) || (pr.scope === "products" && (pr.scope_values || []).includes(p.id));
+  const PRODUCT_KINDS = ["percent", "buy_x_pay_y"];
+  function productPromo(p) {
+    return state.promos.find((pr) => PRODUCT_KINDS.includes(pr.kind) && pr.scope !== "all" && promoMatches(pr, p))
+      || state.promos.find((pr) => PRODUCT_KINDS.includes(pr.kind) && pr.scope === "all") || null;
+  }
+  const promoLabel = (pr) => pr.badge || (pr.kind === "percent" ? `-${pr.value}%` : pr.kind === "buy_x_pay_y" ? `${pr.buy_qty}x${pr.pay_qty}` : "Promo");
+  const promoText = (pr) => (pr.kind === "percent" ? `${pr.value}% de descuento al pagar` : `Lleva ${pr.buy_qty} y paga ${pr.pay_qty} (se descuentan los de menor precio)`)
+    + (pr.min_qty > 1 && pr.kind === "percent" ? ` · comprando ${pr.min_qty} o más` : "")
+    + (pr.min_subtotal ? ` · en compras desde ${clp(pr.min_subtotal)}` : "")
+    + (pr.ends_at ? ` · hasta el ${new Date(pr.ends_at).toLocaleDateString("es-CL", { day: "numeric", month: "long" })}` : "");
+
+  // ---------------------------------------------------------------- reseñas
+  function starsHTML(p) {
+    const r = state.ratings[p.id];
+    return r ? ` <span class="stars" title="${r.avg} de 5 · ${r.count} opiniones">★ ${String(r.avg).replace(".", ",")} <small>(${r.count})</small></span>` : "";
+  }
+  const starRow = (n) => "★★★★★".slice(0, n) + "☆☆☆☆☆".slice(0, 5 - n);
+  async function loadReviews(p) {
+    const box = $("#pd-reviews");
+    if (!box) return;
+    let list = state.reviews[p.id];
+    if (!list) {
+      box.innerHTML = `<h3>Opiniones</h3><p class="muted">Cargando…</p>`;
+      try { list = state.reviews[p.id] = await rest("rpc/get_reviews", { method: "POST", body: JSON.stringify({ p_product: p.id }) }); }
+      catch { list = []; }
+    }
+    if (!$("#pd-reviews") || !$("#product-body").contains(box)) return;
+    const r = state.ratings[p.id];
+    box.innerHTML = `<div class="rv-head"><h3>Opiniones${r ? ` <span class="stars big">★ ${String(r.avg).replace(".", ",")}</span> <small class="muted">(${r.count})</small>` : ""}</h3>
+        <button class="btn btn-blue btn-sm" type="button" id="rv-open">Escribir una opinión</button></div>
+      ${list.length ? list.map((x) => `<div class="rv"><div class="rv-top"><span class="stars">${starRow(x.rating)}</span><b>${esc(x.name)}</b>${x.verified ? `<span class="rv-ok">✓ Compra verificada</span>` : ""}<small class="muted">${new Date(x.created_at).toLocaleDateString("es-CL", { day: "numeric", month: "short", year: "numeric" })}</small></div>
+        ${x.comment ? `<p>${esc(x.comment)}</p>` : ""}${x.reply ? `<p class="rv-reply"><b>Planeta 4 Patas:</b> ${esc(x.reply)}</p>` : ""}</div>`).join("")
+        : `<p class="muted">Aún no hay opiniones. ¡Sé el primero en contarnos qué le pareció a tu mascota!</p>`}
+      <form class="rv-form" id="rv-form" hidden novalidate>
+        <div class="rv-rate" role="radiogroup" aria-label="Calificación">${[1, 2, 3, 4, 5].map((n) => `<button type="button" data-rate="${n}" aria-label="${n} estrella${n > 1 ? "s" : ""}">★</button>`).join("")}</div>
+        <input name="name" placeholder="Tu nombre" maxlength="60" aria-label="Tu nombre">
+        <input name="email" type="email" placeholder="Tu correo (no se publica)" maxlength="120" aria-label="Tu correo">
+        <textarea name="comment" rows="3" maxlength="1000" placeholder="¿Qué le pareció a tu mascota?" aria-label="Comentario"></textarea>
+        <p class="promo-err" id="rv-err" role="alert"></p>
+        <button class="btn btn-orange" type="submit">Publicar opinión</button>
+      </form>`;
+    const form = $("#rv-form");
+    let rating = 0;
+    $("#rv-open").onclick = () => { form.hidden = !form.hidden; if (!form.hidden) form.elements.name.focus(); };
+    form.querySelector(".rv-rate").onclick = (e) => {
+      const b = e.target.closest("[data-rate]"); if (!b) return;
+      rating = +b.dataset.rate;
+      form.querySelectorAll("[data-rate]").forEach((x) => x.classList.toggle("on", +x.dataset.rate <= rating));
+    };
+    const ps = promoGet();
+    if (ps.name) form.elements.name.value = ps.name;
+    if (ps.email) form.elements.email.value = ps.email;
+    form.onsubmit = async (e) => {
+      e.preventDefault();
+      const err = $("#rv-err");
+      if (!rating) { err.textContent = "Elige de 1 a 5 estrellas"; return; }
+      const btn = form.querySelector("[type=submit]"); btn.disabled = true;
+      try {
+        const res = await rest("rpc/submit_review", { method: "POST", body: JSON.stringify({
+          p_product: p.id, p_name: form.elements.name.value, p_email: form.elements.email.value, p_rating: rating, p_comment: form.elements.comment.value }) });
+        if (!res.ok) { err.textContent = res.error; btn.disabled = false; return; }
+        form.outerHTML = `<p class="rv-thanks">🐾 ¡Gracias por tu opinión! ${res.status === "aprobada" ? "Ya está publicada." : "La publicaremos apenas la revisemos."}</p>`;
+        delete state.reviews[p.id];
+      } catch { err.textContent = "No pudimos enviar tu opinión. Intenta de nuevo."; btn.disabled = false; }
+    };
+  }
+
+  // ---------------------------------------------------------------- búsqueda (tolera errores de tipeo)
+  let fuse = null;
+  function searchProducts(q, base = state.products) {
+    const words = norm(q).trim().split(/\s+/).filter(Boolean);
+    const hay = (p) => norm(`${p.name} ${p.brand || ""} ${catOf(p.category)?.name || ""} ${p.life_stage || ""} ${p.description || ""} ${(p.tags || []).join(" ")} ${p.product_variants.map((v) => `${v.sku || ""} ${v.barcode || ""} ${v.label}`).join(" ")}`);
+    const exact = base.filter((p) => words.every((w) => hay(p).includes(w)));
+    if (exact.length || !window.Fuse) { exact.fuzzy = false; return exact; }
+    if (!fuse) {
+      fuse = new window.Fuse(state.products.map((p) => ({ p, name: norm(p.name), brand: norm(p.brand), cat: norm(catOf(p.category)?.name), tags: norm((p.tags || []).join(" ")) })), {
+        keys: [{ name: "name", weight: 3 }, { name: "brand", weight: 2 }, "cat", "tags"], threshold: 0.4, ignoreLocation: true, minMatchCharLength: 2,
+      });
+    }
+    const set = new Set(base);
+    const out = fuse.search(norm(q)).map((r) => r.item.p).filter((p) => set.has(p));
+    out.fuzzy = true;
+    return out;
+  }
+  function renderSuggest() {
+    const q = $("#search").value.trim(), box = $("#suggest");
+    if (q.length < 2 || document.activeElement !== $("#search")) { box.hidden = true; return; }
+    const list = searchProducts(q);
+    box.innerHTML = list.length
+      ? `${list.fuzzy ? `<p class="sg-note">¿Quisiste decir…?</p>` : ""}${list.slice(0, 6).map((p) => `<button type="button" class="sg" data-open="${p.id}" role="option">
+          <span class="sg-img">${p.image_url ? `<img src="${esc(p.image_url)}" alt="" loading="lazy">` : emojiOf(p)}</span>
+          <span class="sg-txt"><b>${esc(p.name)}</b><small>${esc(p.brand || "")} · ${p.product_variants.length > 1 ? "desde " : ""}${clp(minPrice(p))}</small></span></button>`).join("")}
+         <button type="button" class="sg-all" data-sg-all>Ver ${list.length} resultado${list.length === 1 ? "" : "s"}</button>`
+      : `<p class="sg-none">No encontramos “${esc(q)}”.<br><a href="${waLink(`¡Hola Planeta 4 Patas! 🐾 ¿Tienen ${q}?`)}" target="_blank" rel="noopener">Pregúntanos por WhatsApp</a></p>`;
+    box.hidden = false;
+  }
+  const logged = new Set();
+  const logSearchSoon = debounce((q, n) => {
+    const t = norm(q).trim();
+    if (!LIVE || t.length < 2 || logged.has(t)) return;
+    logged.add(t);
+    rest("rpc/log_search", { method: "POST", body: JSON.stringify({ p_term: t, p_results: n }) }).catch(() => {});
+  }, 1500);
+
+  // ---------------------------------------------------------------- carrito calculado en el servidor
+  let quoteSeq = 0, lastQuote = Promise.resolve();
+  const cartKey = () => JSON.stringify(state.cart);
+  function requote() { const p = doRequote(); lastQuote = p; return p; }
+  // Espera a que termine el último cálculo pedido (aunque otro lo haya reemplazado)
+  async function settleQuote() { let p; do { p = lastQuote; await p; } while (p !== lastQuote); }
+  async function doRequote() {
+    if (!LIVE || !state.cart.length) {
+      state.quote = null; renderCartTotals(); if (!$("#checkout-modal").hidden) renderCheckout(); return;
+    }
+    const f = $("#checkout-form"), open = !$("#checkout-modal").hidden;
+    const email = open && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(f.email.value.trim()) ? f.email.value.trim() : null;
+    const key = cartKey(), seq = ++quoteSeq;
+    try {
+      const q = await rest("rpc/price_cart", { method: "POST", body: JSON.stringify({
+        p_items: state.cart, p_email: email, p_code: state.couponCode || null, p_delivery: open ? f.delivery.value : null }) });
+      if (seq !== quoteSeq) return;
+      state.quote = q; state.quoteKey = key;
+    } catch { if (seq === quoteSeq) state.quote = null; }
+    renderCartTotals();
+    if (!$("#checkout-modal").hidden) renderCheckout();
+  }
+  const requoteSoon = debounce(requote, 300);
+  const quoteValid = () => state.quote && state.quoteKey === cartKey();
+
+  // Totales que se muestran (mismas reglas que el servidor)
+  function totals() {
+    const f = $("#checkout-form"), s = state.settings, isShip = f.delivery.value === "despacho";
+    const sub = cartSubtotal(), q = quoteValid() ? state.quote : null;
+    const promo = q ? q.promo_discount : 0, disc = q ? q.discount : 0, after = sub - promo - disc;
+    const free = q ? q.free_shipping : false;
+    const ship = !isShip ? 0 : free || (s.free_shipping_from && after >= s.free_shipping_from) ? 0 : s.shipping_fee;
+    return { sub, promo, promos: q ? q.promotions || [] : [], disc, code: q?.coupon?.ok ? q.coupon.code : "", ship, total: after + ship, free };
+  }
+
+  function renderCartTotals() {
+    const sub = cartSubtotal(), q = quoteValid() ? state.quote : null;
+    const promos = q ? (q.promotions || []) : [];
+    const promo = q ? q.promo_discount : 0, after = sub - promo - (q ? q.discount : 0);
+    $("#cart-promos").innerHTML = promos.map((x) => `<div class="row promo-line"><span>🎁 ${esc(x.name)}</span><span>${x.amount ? `-${clp(x.amount)}` : "✓"}</span></div>`).join("");
+    $("#cart-subtotal").textContent = clp(after);
+    const free = state.settings.free_shipping_from;
+    if (q?.free_shipping) { $("#free-ship").innerHTML = `🎉 ¡Tu pedido tiene <b>despacho GRATIS</b>!<div class="bar"><i style="width:100%"></i></div>`; return; }
+    if (!free) { $("#free-ship").innerHTML = ""; return; }
+    const pct = Math.min(100, (after / free) * 100);
+    $("#free-ship").innerHTML = after >= free
+      ? `🎉 ¡Tienes <b>despacho GRATIS</b>!<div class="bar"><i style="width:100%"></i></div>`
+      : `🚚 Te faltan <b>${clp(free - after)}</b> para despacho <b>GRATIS</b><div class="bar"><i style="width:${pct}%"></i></div>`;
+  }
+
+  // ---------------------------------------------------------------- analítica propia (sin cookies) + Umami opcional
+  function sid() {
+    try {
+      let s = sessionStorage.getItem("p4p_sid");
+      if (!s) { s = (crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2) + Date.now().toString(36)); sessionStorage.setItem("p4p_sid", s); }
+      return s;
+    } catch { return (sid.mem ||= "m" + Math.random().toString(36).slice(2) + Date.now().toString(36)); }
+  }
+  function track(event, x = {}) {
+    if (!LIVE) return;
+    try { window.umami?.track(event, x.value ? { value: x.value } : undefined); } catch { /* sin umami */ }
+    fetch(`${API}/rest/v1/rpc/track`, {
+      method: "POST", keepalive: true, headers: { ...HEADERS, "Content-Type": "application/json" },
+      body: JSON.stringify({ p_session: sid(), p_event: event, p_product: x.product || null, p_value: x.value ?? null, p_source: x.source || null, p_device: x.device || null }),
+    }).catch(() => {});
+  }
+  function trackVisit() {
+    try { if (sessionStorage.getItem("p4p_visit")) return; sessionStorage.setItem("p4p_visit", "1"); } catch { /* sin almacenamiento */ }
+    const u = new URLSearchParams(location.search);
+    let src = u.get("utm_source") || (u.get("fbclid") ? "facebook" : u.get("gclid") ? "google" : "");
+    if (!src && document.referrer) {
+      try {
+        const h = new URL(document.referrer).hostname.replace(/^www\.|^m\.|^l\./, "");
+        if (h !== location.hostname) src = /instagram/.test(h) ? "instagram" : /facebook/.test(h) ? "facebook" : /google/.test(h) ? "google" : /whatsapp|wa\.me/.test(h) ? "whatsapp" : h;
+      } catch { /* referrer inválido */ }
+    }
+    track("visit", { source: (src || "Directo").toLowerCase().slice(0, 60), device: /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent) ? "movil" : "pc" });
+  }
+  function trackPurchase(o) {
+    try {
+      const k = "p4p_bought_" + o.number;
+      if (localStorage.getItem(k)) return;
+      localStorage.setItem(k, "1");
+    } catch { /* sin almacenamiento */ }
+    track("purchase", { value: o.total });
+  }
+  function loadUmami() {
+    const id = state.settings.umami_website_id;
+    if (!LIVE || !id || document.querySelector("script[data-website-id]")) return;
+    const sc = document.createElement("script");
+    sc.defer = true; sc.src = "https://cloud.umami.is/script.js"; sc.dataset.websiteId = id;
+    document.head.appendChild(sc);
+  }
+
   // ---------------------------------------------------------------- pop-up promocional
   const PROMO_KEY = "p4p_promo_v1";
   const promoGet = () => { try { return JSON.parse(localStorage.getItem(PROMO_KEY)) || {}; } catch { return {}; } };
@@ -622,6 +870,7 @@
     el.hidden = false;
     document.body.style.overflow = "hidden";
     setTimeout(() => el.classList.add("show"), 10);
+    track("popup_view");
     $("#promo-form").addEventListener("submit", submitPromo);
   }
 
@@ -646,6 +895,7 @@
         p_email: email, p_name: name, p_phone: f.elements.phone?.value.trim() || null, p_pet: f.elements.pet?.value || null, p_source: "popup" }) });
       if (!r.ok) throw new Error(r.error);
       promoSet({ subscribed: true, email, name, code: r.code || null });
+      track("popup_submit");
       const s = state.settings;
       $("#promo-body").innerHTML = `<h2 id="promo-title">¡Gracias, ${esc(name.split(" ")[0])}! 🎉</h2>
         ${r.code ? `<p>${esc(s.popup_success || "Usa este código al pagar:")}</p>
@@ -668,7 +918,7 @@
     if (!ps.subscribed) return;
     if (ps.email && !f.email.value) f.email.value = ps.email;
     if (ps.name && !f.elements.name.value) f.elements.name.value = ps.name;
-    if (ps.code && !state.discount && !$("#co-code").value) { $("#co-code").value = ps.code; applyCoupon(); }
+    if (ps.code && !state.couponCode && !$("#co-code").value) { $("#co-code").value = ps.code; applyCoupon(); }
   }
 
   // ---------------------------------------------------------------- events
@@ -680,6 +930,8 @@
         return;
       }
       const d = t.dataset;
+      if (d.fav) { toggleFav(d.fav); return; }
+      if ("sgAll" in d) { $("#suggest").hidden = true; setFilter({ q: $("#search").value, category: "", species: "", brand: "" }); return; }
       if (d.add) addToCart(d.add);
       else if (d.variant) { state.selected[d.p] = d.variant; renderGrid(); }
       else if (d.open) openProduct(d.open);
@@ -698,23 +950,35 @@
       else if ("closeModal" in d) closeModals();
     });
     $("#open-cart").onclick = openCart;
+    $("#open-favs").onclick = () => {
+      if (!state.favs.length && !state.filters.favs) { toast("Toca el ♥ de un producto para guardarlo en favoritos"); return; }
+      setFilter({ favs: !state.filters.favs, q: "", category: "", brand: "" });
+      renderFavCount();
+    };
     $("#more").onclick = () => { state.limit += 24; renderGrid(); };
     $("#scrim").onclick = closeCart;
     $("#go-checkout").onclick = openCheckout;
-    $("#clear-filters").onclick = () => setFilter({ q: "", species: "", category: "", brand: "", sort: "featured" }, false);
+    $("#clear-filters").onclick = () => setFilter({ q: "", species: "", category: "", brand: "", sort: "featured", favs: false }, false);
     $("#f-category").onchange = (e) => setFilter({ category: e.target.value }, false);
     $("#f-brand").onchange = (e) => setFilter({ brand: e.target.value }, false);
     $("#f-sort").onchange = (e) => setFilter({ sort: e.target.value }, false);
     let deb;
     $("#search").addEventListener("input", (e) => {
+      renderSuggest();
       clearTimeout(deb);
       deb = setTimeout(() => {
         if ($("#store").hidden) { history.pushState({}, "", "./"); route(); }
-        setFilter(e.target.value ? { q: e.target.value, category: "", species: "", brand: "" } : { q: "" }, e.target.value.length > 1);
+        setFilter(e.target.value ? { q: e.target.value, category: "", species: "", brand: "", favs: false } : { q: "" }, false);
       }, 250);
     });
+    $("#search").addEventListener("keydown", (e) => {
+      if (e.key === "Enter") { e.preventDefault(); $("#suggest").hidden = true; setFilter({ q: e.target.value, category: "", species: "", brand: "", favs: false }); }
+      if (e.key === "Escape") $("#suggest").hidden = true;
+    });
+    $("#search").addEventListener("focus", renderSuggest);
+    $("#search").addEventListener("blur", () => setTimeout(() => ($("#suggest").hidden = true), 200));
     const form = $("#checkout-form");
-    form.addEventListener("change", renderCheckout);
+    form.addEventListener("change", (e) => { if (e.target.id === "co-code") return; renderCheckout(); requoteSoon(); });
     form.addEventListener("input", (e) => { e.target.classList.remove("invalid"); $("#co-error").textContent = ""; });
     form.addEventListener("submit", submitCheckout);
     $("#co-apply").onclick = applyCoupon;
@@ -734,5 +998,10 @@
     }
     renderStatic(); renderGrid(); renderCart(); route();
     setupPromo();
+    renderFavCount();
+    requote();
+    trackVisit();
+    loadUmami();
+    if ("serviceWorker" in navigator && location.protocol === "https:") navigator.serviceWorker.register("sw.js").catch(() => {});
   })();
 })();

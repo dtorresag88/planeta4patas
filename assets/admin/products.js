@@ -41,7 +41,7 @@
     const visible = () => {
       const fn = TABS.find((t) => t[0] === st.tab)[2];
       const list = A.state.products.filter((p) => fn(p) && (!st.cat || p.category === st.cat) && (!st.brand || p.brand === st.brand) &&
-        (!st.q || A.match(`${p.name} ${p.brand || ""} ${(p.tags || []).join(" ")} ${p.product_variants.map((v) => `${v.sku || ""} ${v.label}`).join(" ")}`, st.q)));
+        (!st.q || A.match(`${p.name} ${p.brand || ""} ${(p.tags || []).join(" ")} ${p.product_variants.map((v) => `${v.sku || ""} ${v.barcode || ""} ${v.label}`).join(" ")}`, st.q)));
       const minP = (p) => Math.min(...A.liveVariants(p).map((v) => v.price), Infinity);
       const stockT = (p) => A.liveVariants(p).reduce((s, v) => s + (v.stock ?? 9999), 0);
       list.sort((a, b) => st.sort === "price-asc" ? minP(a) - minP(b) : st.sort === "price-desc" ? minP(b) - minP(a)
@@ -93,6 +93,8 @@
           <button class="btn btn-sm" data-bulk="unfeature">Quitar destacado</button>
           <button class="btn btn-sm" data-bulk="category">Cambiar categoría</button>
           <button class="btn btn-sm" data-bulk="price">Ajustar precios</button>
+          <button class="btn btn-sm" data-bulk="labels">🏷️ Etiquetas</button>
+          <button class="btn btn-sm" data-bulk="replenish">🔁 Días de recompra</button>
           <button class="btn btn-sm btn-plain danger" data-bulk="delete">Eliminar</button>
         </div>
         <div class="tbl-wrap"><table class="tbl">
@@ -124,6 +126,21 @@
       try {
         if (kind === "show" || kind === "hide") { await A.q(A.sb.from("products").update({ active: kind === "show" }).in("id", ids())); return reload(kind === "show" ? "Productos visibles en la tienda" : "Productos ocultos"); }
         if (kind === "feature" || kind === "unfeature") { await A.q(A.sb.from("products").update({ featured: kind === "feature" }).in("id", ids())); return reload("Listo"); }
+        if (kind === "labels") {
+          const r = await A.ask({ title: "Imprimir etiquetas", ok: "Imprimir", intro: "Una etiqueta por formato con nombre, precio y código de barras (o SKU).",
+            fields: [{ name: "qty", label: "Copias de cada etiqueta", type: "number", value: 1, min: 1 }] });
+          if (!r) return;
+          const items = [];
+          A.state.products.filter((p) => st.sel.has(p.id)).forEach((p) => A.liveVariants(p).forEach((v) => items.push({ p, v, qty: Math.max(1, A.int(r.qty) || 1) })));
+          return A.printLabels(items);
+        }
+        if (kind === "replenish") {
+          const r = await A.ask({ title: "Días para recordar la recompra", ok: "Guardar",
+            intro: "Cada cuántos días suele acabarse este producto. Se usa en <b>Clientes → Recompra</b> para avisar a tus clientes. Déjalo vacío para usar el valor de la categoría.",
+            fields: [{ name: "days", label: "Días", type: "number", min: 1, placeholder: "Ej: 30" }] });
+          if (!r) return;
+          await A.q(A.sb.from("products").update({ replenish_days: A.int(r.days) || null }).in("id", ids())); return reload("Días de recompra guardados");
+        }
         if (kind === "category") {
           const r = await A.ask({ title: "Cambiar categoría", fields: [{ name: "cat", label: "Nueva categoría", type: "select", options: A.state.categories.map((c) => [c.slug, c.name]) }], ok: "Cambiar" });
           if (!r) return;
@@ -243,7 +260,7 @@
     const fresh = () => ({
       ...base, tags: [...(base.tags || [])],
       media: [base.image_url, ...(base.gallery || [])].filter(Boolean),
-      variants: (orig ? A.liveVariants(orig) : base.product_variants || []).map((v) => ({ id: orig ? v.id : undefined, label: v.label, price: v.price, compare_at_price: v.compare_at_price, sku: dupSrc ? "" : v.sku, stock: v.stock, _stock0: orig ? v.stock : undefined })),
+      variants: (orig ? A.liveVariants(orig) : base.product_variants || []).map((v) => ({ id: orig ? v.id : undefined, label: v.label, price: v.price, compare_at_price: v.compare_at_price, sku: dupSrc ? "" : v.sku, barcode: dupSrc ? "" : v.barcode, stock: v.stock, _stock0: orig ? v.stock : undefined })),
     });
     let p = fresh();
     if (!p.variants.length) p.variants.push({ label: "Unidad", price: "", compare_at_price: null, sku: "", stock: null });
@@ -254,12 +271,13 @@
     const mediaHtml = () => `<div class="media-grid">${p.media.map((u, i) => `<div class="m ${i === 0 ? "main" : ""}"><img src="${esc(u)}" alt=""><button class="x" data-rm-media="${i}" aria-label="Quitar">✕</button>${i ? `<button class="star" data-main="${i}">Principal</button>` : ""}</div>`).join("")}
       <label class="drop" id="pf-drop"><input type="file" id="pf-files" accept="image/*" multiple hidden>＋ Agregar fotos<br><small>o arrástralas aquí</small></label></div>
       <button class="btn btn-plain btn-sm" id="pf-url" style="margin-top:8px">Agregar desde URL</button>`;
-    const variantsHtml = () => `<table class="vt"><thead><tr><th>Formato</th><th>Precio</th><th>Precio antes <span class="help">(oferta)</span></th><th>Código (SKU)</th><th>Stock <span class="help">(vacío = sin control)</span></th><th></th></tr></thead><tbody>
+    const variantsHtml = () => `<table class="vt"><thead><tr><th>Formato</th><th>Precio</th><th>Precio antes <span class="help">(oferta)</span></th><th>Código (SKU)</th><th>Código de barras</th><th>Stock <span class="help">(vacío = sin control)</span></th><th></th></tr></thead><tbody>
       ${p.variants.map((v, i) => `<tr>
         <td><input data-v="${i}" data-k="label" value="${esc(v.label)}" placeholder="Ej: 15 kg"></td>
         <td><div class="prefix"><span>$</span><input data-v="${i}" data-k="price" type="number" min="0" value="${v.price ?? ""}"></div></td>
         <td><div class="prefix"><span>$</span><input data-v="${i}" data-k="compare_at_price" type="number" min="0" value="${v.compare_at_price ?? ""}"></div></td>
         <td><input data-v="${i}" data-k="sku" value="${esc(v.sku || "")}"></td>
+        <td><div style="display:flex;gap:4px"><input data-v="${i}" data-k="barcode" value="${esc(v.barcode || "")}" placeholder="EAN" style="min-width:110px"><button type="button" class="btn btn-sm" data-scanv="${i}" title="Escanear con la cámara" aria-label="Escanear">📷</button></div></td>
         <td><input data-v="${i}" data-k="stock" type="number" value="${v.stock ?? ""}" placeholder="∞"></td>
         <td><button class="btn btn-plain danger btn-sm" data-rm-v="${i}" aria-label="Quitar formato" ${p.variants.length < 2 ? "disabled" : ""}>✕</button></td></tr>`).join("")}
       </tbody></table><button class="btn btn-plain btn-sm" id="pf-addv" style="margin-top:6px">＋ Agregar formato</button>`;
@@ -294,6 +312,7 @@
             <label class="f">Mascota<select id="pf-species"><option value="perro">🐶 Perro</option><option value="gato">🐱 Gato</option><option value="ambos">🐶🐱 Ambos</option></select></label>
             <label class="f">Etapa de vida<input id="pf-stage" list="dl-stages" value="${esc(p.life_stage || "")}"></label>
             <label class="f">Etiquetas <small>Separadas por coma. Ayudan a la búsqueda (ej: sin granos, hipoalergénico)</small><input id="pf-tags" value="${esc((p.tags || []).join(", "))}"></label>
+            <label class="f">Días para recordar recompra <small>Cada cuánto se acaba. Vacío = valor de la categoría${(() => { const d = A.state.categories.find((c) => c.slug === p.category)?.replenish_days; return d ? ` (${d} días)` : " (sin recordatorio)"; })()}</small><input id="pf-repl" type="number" min="1" max="365" value="${p.replenish_days ?? ""}" placeholder="Ej: 30"></label>
             <datalist id="dl-brands">${brands.map((b) => `<option value="${esc(b)}">`).join("")}</datalist>
             <datalist id="dl-stages">${stages.map((b) => `<option value="${esc(b)}">`).join("")}</datalist>
           </div>
@@ -310,6 +329,7 @@
       p.active = $("#pf-active").value === "1"; p.featured = $("#pf-featured").checked;
       p.category = $("#pf-cat").value; p.brand = $("#pf-brand").value.trim(); p.species = $("#pf-species").value;
       p.life_stage = $("#pf-stage").value.trim(); p.tags = $("#pf-tags").value.split(",").map((t) => t.trim().toLowerCase()).filter(Boolean);
+      p.replenish_days = A.int($("#pf-repl").value) || null;
     };
     const drawMedia = () => { $("#pf-media").innerHTML = mediaHtml(); bindMedia(); };
     const drawVariants = () => { $("#pf-variants").innerHTML = variantsHtml(); };
@@ -324,7 +344,9 @@
     });
     root.addEventListener("change", (e) => { if (e.target.closest(".cols") && e.target.type !== "file") markDirty(); });
     $("#pf-variants").onclick = (e) => {
-      if (e.target.closest("#pf-addv")) { p.variants.push({ label: "", price: null, compare_at_price: null, sku: "", stock: null }); drawVariants(); markDirty(); }
+      if (e.target.closest("#pf-addv")) { p.variants.push({ label: "", price: null, compare_at_price: null, sku: "", barcode: "", stock: null }); drawVariants(); markDirty(); }
+      const sc = e.target.closest("[data-scanv]");
+      if (sc) A.scan().then((code) => { if (code) { p.variants[+sc.dataset.scanv].barcode = code; drawVariants(); markDirty(); } });
       const rm = e.target.closest("[data-rm-v]");
       if (rm && p.variants.length > 1) { p.variants.splice(+rm.dataset.rmV, 1); drawVariants(); markDirty(); }
     };
@@ -362,6 +384,7 @@
       const row = {
         name: p.name, description: p.description || null, brand: p.brand || null, category: p.category, species: p.species,
         life_stage: p.life_stage || null, tags: p.tags, image_url: p.media[0] || null, gallery: p.media.slice(1), active: p.active, featured: p.featured,
+        replenish_days: p.replenish_days || null,
       };
       try {
         let pid = orig?.id;
@@ -375,7 +398,7 @@
         const removed = (orig ? A.liveVariants(orig) : []).filter((v) => !keep.includes(v.id)).map((v) => v.id);
         if (removed.length) await A.q(A.sb.from("product_variants").update({ active: false }).in("id", removed));
         for (const [i, v] of vs.entries()) {
-          const data = { label: v.label.trim(), price: v.price, compare_at_price: v.compare_at_price || null, sku: v.sku?.trim() || null, sort: i, active: true };
+          const data = { label: v.label.trim(), price: v.price, compare_at_price: v.compare_at_price || null, sku: v.sku?.trim() || null, barcode: v.barcode?.trim() || null, sort: i, active: true };
           if (v.id) {
             await A.q(A.sb.from("product_variants").update(data).eq("id", v.id));
             if ((v.stock ?? null) !== (v._stock0 ?? null)) await A.rpc("set_stock", { p_variant: v.id, p_stock: v.stock, p_reason: "Editado en la ficha del producto" });
@@ -427,7 +450,7 @@
       if (st.f === "bajo" && !(v.stock != null && v.stock <= A.lowStock())) return false;
       if (st.f === "agotado" && !(v.stock != null && v.stock <= 0)) return false;
       if (st.f === "sincontrol" && v.stock != null) return false;
-      return !st.q || A.match(`${p.name} ${p.brand || ""} ${v.label} ${v.sku || ""}`, st.q);
+      return !st.q || A.match(`${p.name} ${p.brand || ""} ${v.label} ${v.sku || ""} ${v.barcode || ""}`, st.q);
     });
 
     function draw() {
@@ -435,7 +458,7 @@
       const list = visible();
       $("#i-body").innerHTML = list.length ? list.map(({ p, v }) => `<tr data-vid="${v.id}">
         <td><div class="pcell">${A.thumb(p.image_url, A.catEmoji(p.category))}<div><a href="#/productos/${p.id}"><b>${esc(p.name)}</b></a><small class="muted">${esc(v.label)}${!p.active ? " · oculto" : ""}</small></div></div></td>
-        <td class="mono hide-sm">${esc(v.sku || "—")}</td>
+        <td class="mono hide-sm">${esc(v.sku || "—")}${v.barcode ? `<br><small class="muted">${esc(v.barcode)}</small>` : ""}</td>
         <td><label class="switch" title="Controlar stock"><input type="checkbox" data-track ${v.stock != null ? "checked" : ""}></label></td>
         <td style="width:210px">${v.stock != null ? `<div style="display:flex;gap:4px;align-items:center">
           <button class="btn btn-sm" data-step="-1" aria-label="Restar">−</button>
@@ -448,7 +471,8 @@
     }
 
     A.render(`<div class="page">
-      ${A.head({ title: "Inventario", back: "/productos", sub: "Ajusta el stock disponible. Se descuenta solo con cada venta pagada y se repone al cancelar un pedido." })}
+      ${A.head({ title: "Inventario", back: "/productos", actions: `<button class="btn btn-primary" id="i-scan">📷 Escanear producto</button>`,
+        sub: "Ajusta el stock disponible. Se reserva cuando el cliente va a pagar, se descuenta con la venta y se repone al cancelar o devolver." })}
       <div class="card flush">
         <div class="toolbar">
           <div class="grow"><input id="i-q" type="search" placeholder="Buscar producto o código"></div>
@@ -464,6 +488,27 @@
     $("#i-q").oninput = A.debounce((e) => { st.q = e.target.value; draw(); }, 150);
     $("#i-f").onchange = (e) => { st.f = e.target.value; draw(); };
     $("#i-reason").onchange = (e) => (st.reason = e.target.value);
+    $("#i-scan").onclick = async () => {
+      const code = await A.scan("Escanear para ajustar stock");
+      if (!code) return;
+      let hit = A.findByCode(code);
+      if (!hit) {
+        if (!(await A.confirm({ title: "Código no registrado", message: `Ningún producto tiene el código <b>${esc(code)}</b>. ¿Quieres asignarlo a un producto?`, ok: "Asignar código" }))) return;
+        hit = await A.assignBarcode(code).catch((err) => { A.fail(err); return null; });
+        if (!hit) return;
+      }
+      const row = rows.find((r) => r.v.id === hit.v.id);
+      if (!row) return;
+      const r = await A.ask({
+        title: `${row.p.name} · ${row.v.label}`, ok: "Guardar",
+        intro: `Stock actual: <b>${row.v.stock ?? "sin control"}</b>`,
+        fields: [{ name: "mode", label: "¿Qué quieres hacer?", type: "select", options: [["sumar", "Sumar unidades (llegó mercadería)"], ["restar", "Restar unidades"], ["fijar", "Fijar el stock exacto"]] },
+          { name: "qty", label: "Cantidad", type: "number", value: 1, min: 0, required: true }],
+      });
+      if (!r) return;
+      const n = Math.max(0, A.int(r.qty) || 0), cur = row.v.stock || 0;
+      commit(row, r.mode === "fijar" ? n : Math.max(0, cur + (r.mode === "sumar" ? n : -n)));
+    };
     const findRow = (tr) => rows.find((r) => r.v.id === tr.dataset.vid);
     const commit = async (row, value) => {
       if (value === row.v.stock) return;

@@ -87,13 +87,13 @@
         <td>${A.badge(s, cls)}</td>
         <td class="num">${d.used_count}${d.usage_limit ? ` / ${d.usage_limit}` : ""}</td>
         <td class="hide-sm small">${d.starts_at || d.ends_at ? `${d.starts_at ? A.date(d.starts_at) : "Ahora"} → ${d.ends_at ? A.date(d.ends_at) : "sin término"}` : "Sin fecha de término"}</td>
-        <td class="num"><button class="btn btn-sm" data-share="${d.id}">Compartir</button></td></tr>`; }).join("")
+        <td class="num nowrap"><button class="btn btn-sm" data-codes="${d.id}" title="Códigos de un solo uso">Códigos únicos</button> <button class="btn btn-sm" data-share="${d.id}">Compartir</button></td></tr>`; }).join("")
         : `<tr><td colspan="5"><div class="empty-state"><div class="emo">🎟️</div><h3>Crea tu primer código de descuento</h3><p>Ideal para campañas en Instagram, clientes nuevos o fidelizar a tus clientes frecuentes.</p><button class="btn btn-primary" id="d-new2">Crear descuento</button></div></td></tr>`;
       $("#d-new2")?.addEventListener("click", create);
     };
     const create = async () => { if (await discountForm()) { await load(); draw(); } };
     A.render(`<div class="page">
-      ${A.head({ title: "Descuentos", actions: `<button class="btn btn-primary" id="d-new">Crear descuento</button>`, sub: "Los clientes ingresan el código en el paso de pago. El descuento se valida en el servidor." })}
+      ${A.head({ title: "Descuentos", actions: `<a class="btn" href="#/promociones">🎁 Promociones automáticas</a><button class="btn btn-primary" id="d-new">Crear descuento</button>`, sub: "Los clientes ingresan el código en el paso de pago. El descuento se valida en el servidor. Para descuentos sin código usa Promociones automáticas." })}
       <div class="card flush"><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Código</th><th>Estado</th><th class="num">Usos</th><th class="hide-sm">Vigencia</th><th></th></tr></thead><tbody id="d-body"><tr><td colspan="5"><div class="spinner"></div></td></tr></tbody></table></div></div>
       <div class="card" style="margin-top:16px"><h2 style="margin-bottom:8px">💡 Ideas de campañas</h2>
         <ul style="margin:0;padding-left:18px;line-height:1.8">
@@ -104,6 +104,8 @@
     await load(); draw();
     $("#d-new").onclick = create;
     $("#d-body").onclick = async (e) => {
+      const uc = e.target.closest("[data-codes]");
+      if (uc) { e.stopPropagation(); return A.uniqueCodes(list.find((x) => x.id === uc.dataset.codes)); }
       const sh = e.target.closest("[data-share]");
       if (sh) {
         e.stopPropagation();
@@ -161,7 +163,7 @@
         title: "Análisis",
         actions: `<select id="a-r" class="btn" style="width:auto">${Object.entries(PRE).map(([k, l]) => `<option value="${k}" ${k === r ? "selected" : ""}>${l}</option>`).join("")}</select>
           <span id="a-custom" ${r === "custom" ? "" : "hidden"} style="display:inline-flex;gap:6px"><input type="date" id="a-from" value="${A.dayKey(from)}" style="width:auto"><input type="date" id="a-to" value="${A.dayKey(to)}" style="width:auto"><button class="btn" id="a-apply">Ver</button></span>
-          <button class="btn" id="a-export">Exportar ventas</button>`,
+          <a class="btn" href="#/trafico">Tráfico y búsquedas</a><button class="btn" id="a-export">Exportar ventas</button>`,
         sub: `${A.date(from)} – ${A.date(to)} · solo pedidos pagados`,
       })}
       <div class="kpis">

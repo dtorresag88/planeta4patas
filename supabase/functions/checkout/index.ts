@@ -76,50 +76,40 @@ Deno.serve(async (req) => {
   const comuna = clean(delivery.comuna, 60), address = clean(delivery.address, 200),
     addressDetail = clean(delivery.detail, 120), notes = clean(delivery.notes, 500);
 
-  // ---------- Precios y stock desde la base ----------
+  // ---------- Precios, promociones, descuento y despacho: todo calculado en la base (price_cart) ----------
   const qtyById = new Map<string, number>();
   for (const l of items) {
     const q = Math.floor(Number(l?.qty));
     if (typeof l?.variant_id !== "string" || !(q > 0) || q > 99) return json({ error: "Cantidad inválida" }, 400);
     qtyById.set(l.variant_id, (qtyById.get(l.variant_id) ?? 0) + q);
   }
-  const { data: variants, error: vErr } = await db
-    .from("product_variants")
-    .select("id, sku, label, price, stock, active, product:products(id, name, active)")
-    .in("id", [...qtyById.keys()]);
-  if (vErr) return json({ error: "No pudimos validar el carrito" }, 500);
-
-  const lines = [];
-  let subtotal = 0;
-  for (const [id, qty] of qtyById) {
-    const v: any = variants?.find((x) => x.id === id);
-    if (!v || !v.active || !v.product?.active) return json({ error: "Un producto del carrito ya no está disponible" }, 409);
-    if (v.stock !== null && v.stock < qty) return json({ error: `Stock insuficiente: ${v.product.name} ${v.label} (quedan ${v.stock})` }, 409);
-    const line_total = v.price * qty;
-    subtotal += line_total;
-    lines.push({ product_id: v.product.id, variant_id: v.id, sku: v.sku, name: v.product.name, variant_label: v.label, unit_price: v.price, qty, line_total });
+  const code = clean(body?.discount_code, 40);
+  const { data: cart, error: cErr } = await db.rpc("price_cart", {
+    p_items: [...qtyById].map(([variant_id, qty]) => ({ variant_id, qty })), p_email: email, p_code: code || null, p_delivery: method,
+  });
+  if (cErr || !cart) return json({ error: "No pudimos validar el carrito" }, 500);
+  if ((cart.lines ?? []).length !== qtyById.size) return json({ error: "Un producto del carrito ya no está disponible" }, 409);
+  for (const v of cart.lines) {
+    if (!v.active) return json({ error: `${v.name} ${v.variant_label} ya no está disponible` }, 409);
+    if (v.stock !== null && v.stock < v.qty) return json({ error: `Stock insuficiente: ${v.name} ${v.variant_label} (quedan ${Math.max(v.stock, 0)})` }, 409);
   }
+  const lines = cart.lines.map((v: any) => ({
+    product_id: v.product_id, variant_id: v.variant_id, sku: v.sku, name: v.name, variant_label: v.variant_label,
+    unit_price: v.unit_price, qty: v.qty, line_total: v.line_total,
+  }));
+  if (code && !cart.coupon?.ok) return json({ error: cart.coupon?.error ?? "Código de descuento inválido" }, 400);
+  const subtotal: number = cart.subtotal, promoDiscount: number = cart.promo_discount, discount: number = cart.discount;
+  const discountCode: string | null = cart.coupon?.ok ? cart.coupon.code : null;
 
-  // ---------- Descuento ----------
-  let discount = 0, discountCode: string | null = null, freeShipping = false;
-  const code = clean(body?.discount_code, 30);
-  if (code) {
-    const { data: d } = await db.rpc("eval_discount", { p_code: code, p_subtotal: subtotal, p_email: email });
-    if (!d?.ok) return json({ error: d?.error ?? "Código de descuento inválido" }, 400);
-    discount = d.amount ?? 0; discountCode = d.code; freeShipping = !!d.free_shipping;
-  }
-
-  // ---------- Despacho ----------
-  const fee = settings.shipping_fee ?? 1990, freeFrom = settings.free_shipping_from ?? 60000;
   let shipping = 0, deliveryDay: string | null = null;
   if (method === "despacho") {
     const zone = (settings.delivery_zones ?? []).find((z: any) => z.comuna === comuna);
     if (!zone) return json({ error: "Aún no despachamos a esa comuna" }, 400);
     if (address.length < 5) return json({ error: "Ingresa la dirección de despacho" }, 400);
-    shipping = freeShipping || subtotal >= freeFrom ? 0 : fee;
+    shipping = cart.shipping;
     deliveryDay = (zone.dias ?? []).join(" / ");
   }
-  const total = subtotal - discount + shipping;
+  const total = subtotal - promoDiscount - discount + shipping;
   if (total <= 0 && payment !== "transferencia") return json({ error: "El total del pedido debe ser mayor a $0" }, 400);
 
   // ---------- Crear pedido ----------
@@ -128,15 +118,26 @@ Deno.serve(async (req) => {
     customer_rut: rut || null, delivery_method: method, comuna: method === "despacho" ? comuna : null,
     address: method === "despacho" ? address : null, address_detail: addressDetail || null,
     delivery_day: deliveryDay, notes: notes || null, subtotal, shipping, total,
-    discount, discount_code: discountCode, source: "web",
+    discount, discount_code: discountCode, promo_discount: promoDiscount, promotions: cart.promotions ?? [], source: "web",
   }).select("id, number, access_token").single();
   if (oErr || !order) return json({ error: "No pudimos crear el pedido" }, 500);
 
   const { error: iErr } = await db.from("order_items").insert(lines.map((l) => ({ ...l, order_id: order.id })));
   if (iErr) {
-    await db.from("orders").update({ status: "cancelado", cancel_reason: "Error al guardar productos" }).eq("id", order.id);
+    await db.from("orders").update({ status: "cancelado", cancel_reason: "Error al guardar productos", cancelled_at: new Date().toISOString() }).eq("id", order.id);
     return json({ error: "No pudimos crear el pedido" }, 500);
   }
+
+  // ---------- Reserva de stock mientras el cliente paga (evita vender dos veces la última unidad) ----------
+  const { data: rsv } = await db.rpc("reserve_order", { p_order: order.id });
+  if (!rsv?.ok) {
+    await db.from("orders").update({ status: "cancelado", cancel_reason: rsv?.error ?? "Sin stock", cancelled_at: new Date().toISOString() }).eq("id", order.id);
+    return json({ error: rsv?.error ?? "Stock insuficiente" }, 409);
+  }
+  const fail = async (reason: string, detail: unknown) => {
+    await db.rpc("release_order_stock", { p_order: order.id, p_reason: reason });
+    await db.from("orders").update({ status: "cancelado", cancel_reason: reason, cancelled_at: new Date().toISOString(), payment_detail: detail }).eq("id", order.id);
+  };
 
   const backUrl = `${SITE_URL}/?pedido=${order.id}&t=${order.access_token}`;
 
@@ -147,14 +148,15 @@ Deno.serve(async (req) => {
 
   // ---------- Mercado Pago (Checkout Pro) ----------
   if (payment === "mercadopago") {
-    // Con descuento se envía un único ítem por el total, para que el monto cobrado sea exacto.
-    const mpItems = discount > 0
+    // Con descuentos o promociones se envía un único ítem por el total, para que el monto cobrado sea exacto.
+    const anyDiscount = discount + promoDiscount > 0;
+    const mpItems = anyDiscount
       ? [{ id: order.id, title: `Pedido #${order.number} · Planeta 4 Patas`, quantity: 1, unit_price: total, currency_id: "CLP" }]
       : lines.map((l) => ({
         id: l.variant_id, title: `${l.name} ${l.variant_label}`.slice(0, 250),
         quantity: l.qty, unit_price: l.unit_price, currency_id: "CLP",
       }));
-    if (discount === 0 && shipping > 0) mpItems.push({ id: "despacho", title: "Despacho", quantity: 1, unit_price: shipping, currency_id: "CLP" });
+    if (!anyDiscount && shipping > 0) mpItems.push({ id: "despacho", title: "Despacho", quantity: 1, unit_price: shipping, currency_id: "CLP" });
 
     const r = await fetch("https://api.mercadopago.com/checkout/preferences", {
       method: "POST",
@@ -165,13 +167,15 @@ Deno.serve(async (req) => {
         external_reference: order.id,
         statement_descriptor: "PLANETA4PATAS",
         back_urls: { success: backUrl, failure: backUrl, pending: backUrl },
+        expires: !!rsv.reserved_until,
+        expiration_date_to: rsv.reserved_until ? new Date(new Date(rsv.reserved_until).getTime() + 15 * 60e3).toISOString() : undefined,
         auto_return: "approved",
         notification_url: `${SUPABASE_URL}/functions/v1/mp-webhook`,
       }),
     });
     const pref = await r.json().catch(() => ({}));
     if (!r.ok || !pref.init_point) {
-      await db.from("orders").update({ status: "cancelado", cancel_reason: "Mercado Pago no respondió", payment_detail: pref }).eq("id", order.id);
+      await fail("Mercado Pago no respondió", pref);
       return json({ error: "Mercado Pago no respondió. Intenta nuevamente." }, 502);
     }
     await db.from("orders").update({ payment_ref: pref.id }).eq("id", order.id);
@@ -191,7 +195,7 @@ Deno.serve(async (req) => {
   });
   const tx = await r.json().catch(() => ({}));
   if (!r.ok || !tx.token) {
-    await db.from("orders").update({ status: "cancelado", cancel_reason: "Webpay no respondió", payment_detail: tx }).eq("id", order.id);
+    await fail("Webpay no respondió", tx);
     return json({ error: "Webpay no respondió. Intenta nuevamente." }, 502);
   }
   await db.from("orders").update({ payment_ref: tx.token }).eq("id", order.id);

@@ -52,9 +52,10 @@
         <div><h3>${o.delivery_method === "despacho" ? "Despacho" : "Retiro en tienda"}</h3><p>${o.delivery_method === "despacho" ? `${esc(o.address || "")}${o.address_detail ? `, ${esc(o.address_detail)}` : ""}<br><b>${esc(o.comuna || "")}</b>${o.delivery_day ? `<br>Reparto: ${esc(o.delivery_day)}` : ""}` : esc(s.address || "")}</p></div></div>
       ${o.notes ? `<p class="note"><b>Comentario del cliente:</b> ${esc(o.notes)}</p>` : ""}
       <table><thead><tr><th>✓</th><th>Producto</th><th>Código</th><th>Cant.</th><th>Total</th></tr></thead><tbody>
-      ${(o.order_items || []).map((i) => `<tr><td class="box">☐</td><td>${esc(i.name)} · ${esc(i.variant_label || "")}</td><td>${esc(i.sku || "")}</td><td class="c">${i.qty}</td><td class="r">${clp(i.line_total)}</td></tr>`).join("")}
+      ${(o.order_items || []).filter((i) => i.qty > 0).map((i) => `<tr><td class="box">☐</td><td>${esc(i.name)} · ${esc(i.variant_label || "")}</td><td>${esc(i.sku || "")}</td><td class="c">${i.qty}</td><td class="r">${clp(i.line_total)}</td></tr>`).join("")}
       </tbody><tfoot>
       <tr><td colspan="4" class="r">Subtotal</td><td class="r">${clp(o.subtotal)}</td></tr>
+      ${(o.promotions || []).filter((x) => x.amount > 0).map((x) => `<tr><td colspan="4" class="r">${esc(x.name)}</td><td class="r">-${clp(x.amount)}</td></tr>`).join("")}
       ${o.discount ? `<tr><td colspan="4" class="r">Descuento ${esc(o.discount_code || "")}</td><td class="r">-${clp(o.discount)}</td></tr>` : ""}
       <tr><td colspan="4" class="r">Despacho</td><td class="r">${o.shipping ? clp(o.shipping) : "Gratis"}</td></tr>
       <tr class="t"><td colspan="4" class="r">Total</td><td class="r">${clp(o.total)}</td></tr></tfoot></table>
@@ -178,7 +179,7 @@
         ["Pedido", "Fecha", "Estado", "Canal", "Cliente", "RUT", "Correo", "Teléfono", "Entrega", "Comuna", "Dirección", "Día reparto", "Medio de pago", "Productos", "Subtotal", "Descuento", "Código", "Despacho", "Total", "Comentario cliente", "Notas internas"],
         ...list.map((o) => [o.number, new Date(o.created_at).toLocaleString("es-CL"), A.STATUS[o.status], o.source === "manual" ? "Panel" : "Web", o.customer_name, o.customer_rut, o.customer_email, o.customer_phone,
           o.delivery_method === "despacho" ? "Despacho" : "Retiro", o.comuna, [o.address, o.address_detail].filter(Boolean).join(", "), o.delivery_day, A.PAY[o.payment_method],
-          o.order_items.map((i) => `${i.qty} x ${i.name} ${i.variant_label || ""}${i.sku ? ` [${i.sku}]` : ""}`).join(" | "),
+          o.order_items.filter((i) => i.qty > 0).map((i) => `${i.qty} x ${i.name} ${i.variant_label || ""}${i.sku ? ` [${i.sku}]` : ""}`).join(" | "),
           o.subtotal, o.discount, o.discount_code, o.shipping, o.total, o.notes, o.admin_notes]),
       ]);
     };
@@ -224,7 +225,7 @@
       <div class="cols">
         <div class="stack">
           <div class="card"><h2 style="margin-bottom:10px">Productos</h2>
-            <div style="position:relative"><input id="n-search" type="search" placeholder="Buscar producto, marca o código…" autocomplete="off">
+            <div style="position:relative;display:flex;gap:6px"><input id="n-search" type="search" placeholder="Buscar producto, marca o código…" autocomplete="off" style="flex:1"><button type="button" class="btn" id="n-scan" title="Escanear código de barras">📷</button>
             <div class="gs-results" id="n-results" hidden style="z-index:5"></div></div>
             <div id="n-lines" style="margin-top:12px"></div>
           </div>
@@ -275,7 +276,7 @@
     const showResults = () => {
       const q = $("#n-search").value.trim();
       if (!q) { res.hidden = true; return; }
-      const hits = variants.filter(({ p, v }) => A.match(`${p.name} ${p.brand || ""} ${v.label} ${v.sku || ""}`, q)).slice(0, 12);
+      const hits = variants.filter(({ p, v }) => A.match(`${p.name} ${p.brand || ""} ${v.label} ${v.sku || ""} ${v.barcode || ""}`, q)).slice(0, 12);
       res.innerHTML = hits.length ? hits.map(({ p, v }, i) => `<a href="javascript:void 0" data-i="${variants.indexOf(hits[i])}">${A.thumb(p.image_url, A.catEmoji(p.category))}<div style="flex:1"><b>${esc(p.name)}</b><br><small class="muted">${esc(v.label)}${v.sku ? ` · ${esc(v.sku)}` : ""} · ${v.stock == null ? "sin control" : `stock ${v.stock}`}${!p.active ? " · oculto" : ""}</small></div><b>${clp(v.price)}</b></a>`).join("") : `<p class="muted" style="padding:10px;margin:0">Sin resultados</p>`;
       res.hidden = false;
     };
@@ -290,6 +291,18 @@
       $("#n-search").value = ""; res.hidden = true; drawLines(); $("#n-search").focus();
     };
     $("#n-search").onblur = () => setTimeout(() => (res.hidden = true), 150);
+    $("#n-scan").onclick = async () => {
+      // Escaneo continuo: cada producto leído se agrega al pedido
+      while (true) {
+        const code = await A.scan("Escanear producto para el pedido");
+        if (!code) break;
+        const hit = A.findByCode(code);
+        if (!hit) { A.toast(`No hay ningún producto con el código ${code}`, true); continue; }
+        const ex = st.lines.find((l) => l.v.id === hit.v.id);
+        if (ex) ex.qty++; else st.lines.push({ p: hit.p, v: hit.v, qty: 1, price: hit.v.price });
+        drawLines(); A.toast(`＋ ${hit.p.name} ${hit.v.label}`);
+      }
+    };
     $("#n-lines").oninput = (e) => {
       const q = e.target.dataset.qty, pr = e.target.dataset.price;
       if (q != null) st.lines[+q].qty = Math.max(1, A.int(e.target.value) || 1);
@@ -361,12 +374,14 @@
   // ------------------------------------------------------------ detalle
   A.route("/pedidos/:id", "pedidos", async ({ id }) => {
     const [settings] = await Promise.all([A.loadSettings(), A.loadCatalog()]);
-    let o, events;
+    let o, events, returns;
     const load = async () => {
-      [o, events] = await Promise.all([
+      [o, events, returns] = await Promise.all([
         A.q(A.sb.from("orders").select("*, order_items(*)").eq("id", id).single()),
         A.q(A.sb.from("order_events").select("*").eq("order_id", id).order("created_at", { ascending: false })),
+        A.q(A.sb.from("order_returns").select("*").eq("order_id", id).order("created_at", { ascending: false })).catch(() => []),
       ]);
+      o.order_items = o.order_items.filter((i) => i.qty > 0);
     };
     await load();
 
@@ -398,12 +413,17 @@
             <div class="dd"><button class="btn" id="d-more">Más acciones ▾</button><div class="dd-menu" id="d-more-menu" hidden>
               <button id="d-copy">🔗 Copiar enlace de seguimiento</button>
               <a href="#/pedidos/nuevo?cliente=${encodeURIComponent(o.customer_email)}">🧾 Nuevo pedido para este cliente</a>
+              ${["pendiente_pago", "pagado", "preparando"].includes(o.status) ? `<button id="d-edit">✏️ Editar productos</button>` : ""}
+              ${o.paid_at && o.status !== "cancelado" ? `<button id="d-return">↩️ Devolución o cambio</button>` : ""}
               ${o.status !== "cancelado" ? `<button id="d-status">✏️ Cambiar estado manualmente</button><button class="danger" id="d-cancel">✕ Cancelar pedido</button>` : ""}
             </div></div>`,
         })}
         ${o.status === "cancelado" ? `<div class="banner bad"><span>✕</span><div><b>Pedido cancelado${o.cancelled_at ? ` el ${A.date(o.cancelled_at)}` : ""}</b>${esc(o.cancel_reason || "")}${o.paid_at ? "<br>Este pedido estaba pagado: si corresponde, realiza la devolución desde Mercado Pago / Transbank." : ""}</div></div>` : ""}
         ${o.status === "pendiente_pago" && o.payment_method === "transferencia" ? `<div class="banner warn"><span>🏦</span><div><b>Esperando transferencia</b>Cuando recibas el dinero, registra el pago para descontar stock y pasarlo a "Por preparar".</div><div class="actions"><button class="btn btn-sm btn-orange" id="d-markpaid2">Registrar pago</button></div></div>` : ""}
         ${o.status === "pendiente_pago" && o.payment_method !== "transferencia" && Date.now() - new Date(o.created_at) > 3600e3 ? `<div class="banner info"><span>🛒</span><div><b>El cliente no completó el pago</b>Escríbele por WhatsApp con la plantilla "Recuperar compra".</div></div>` : ""}
+        ${o.status === "pendiente_pago" && o.reserved_until ? `<div class="banner info"><span>📦</span><div><b>Stock reservado hasta el ${A.date(o.reserved_until)} a las ${A.time(o.reserved_until)}</b>Si el pago no llega antes, el stock vuelve a quedar disponible automáticamente.</div></div>` : ""}
+        ${["pendiente_pago", "rechazado"].includes(o.status) && !o.stock_applied && o.source === "web" ? `<div class="banner"><span>ℹ️</span><div>La reserva de stock de este pedido ya se liberó. Si el pago llega igual, el stock se descontará en ese momento.</div></div>` : ""}
+        ${o.refunded ? `<div class="banner warn"><span>↩️</span><div><b>Reembolsado: ${clp(o.refunded)}</b>${o.refunded >= o.total ? "Reembolso total." : `De un total de ${clp(o.total)}.`}</div></div>` : ""}
         ${pd.env === "integration" ? `<div class="banner warn"><span>🧪</span><div><b>Pago de PRUEBA (Webpay integración)</b>No hubo cobro real.</div></div>` : ""}
         <div class="cols">
           <div class="stack">
@@ -418,15 +438,21 @@
               <div class="card-head"><h2>${A.payBadge(o)}</h2></div>
               <dl class="kv">
                 <dt>Subtotal</dt><dd>${clp(o.subtotal)}</dd>
+                ${(o.promotions || []).filter((x) => x.amount > 0).map((x) => `<dt>🎁 ${esc(x.name)}</dt><dd>-${clp(x.amount)}</dd>`).join("")}
+                ${(o.promotions || []).filter((x) => x.free_shipping).map((x) => `<dt>🎁 ${esc(x.name)}</dt><dd>✓</dd>`).join("")}
                 ${o.discount ? `<dt>Descuento ${o.discount_code ? `<span class="tag">${esc(o.discount_code)}</span>` : ""}</dt><dd>-${clp(o.discount)}</dd>` : ""}
                 <dt>Despacho</dt><dd>${o.delivery_method === "despacho" ? (o.shipping ? clp(o.shipping) : "Gratis") : "Retiro"}</dd>
                 <dt><b>Total</b></dt><dd><b>${clp(o.total)}</b></dd>
                 <dt>Medio de pago</dt><dd>${esc(A.PAY[o.payment_method] || o.payment_method)}</dd>
                 ${o.paid_at ? `<dt>Pagado</dt><dd>${A.date(o.paid_at)} ${A.time(o.paid_at)}</dd>` : ""}
+                ${o.refunded ? `<dt>Reembolsado</dt><dd style="color:var(--red)">-${clp(o.refunded)}</dd><dt><b>Neto</b></dt><dd><b>${clp(o.total - o.refunded)}</b></dd>` : ""}
               </dl>
               ${payInfo ? `<p class="muted small" style="margin:10px 0 0">${payInfo}</p>` : ""}
               ${["pendiente_pago", "rechazado"].includes(o.status) ? `<div class="sep"></div><div style="display:flex;justify-content:flex-end"><button class="btn btn-orange" id="d-markpaid">Registrar pago recibido</button></div>` : ""}
             </div>
+            ${returns.length ? `<div class="card"><h2 style="margin-bottom:10px">Devoluciones y cambios</h2>
+              ${returns.map((r) => `<div class="ret"><div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap"><b>${r.kind === "cambio" ? "🔄 Cambio" : "↩️ Devolución"} · ${A.date(r.created_at)}</b>${r.refund_amount ? `<b>${clp(r.refund_amount)}${r.refund_method ? ` · ${esc(r.refund_method)}` : ""}</b>` : ""}</div>
+                <small class="muted">${r.items.map((i) => `${i.qty} × ${esc(i.name)} ${esc(i.variant_label || "")}`).join(", ")}${r.restock ? " · stock repuesto" : ""}${r.reason ? ` · ${esc(r.reason)}` : ""}${r.actor ? ` · ${esc(r.actor)}` : ""}</small></div>`).join("")}</div>` : ""}
             <div class="card"><h2 style="margin-bottom:12px">Historial</h2>
               <form class="note-box" id="d-note-form"><input id="d-note" placeholder="Escribe un comentario (solo lo ve tu equipo)…"><button class="btn btn-primary">Publicar</button></form>
               <ul class="timeline">${events.map((e) => `<li class="k-${esc(e.kind)}">${esc(e.message)}<small>${A.dateTime(e.created_at)}${e.actor ? ` · ${esc(e.actor)}` : ""}</small></li>`).join("") || `<li>Sin eventos</li>`}</ul>
@@ -476,6 +502,117 @@
       catch (err) { A.fail(err); }
     };
 
+    // ---- Editar productos del pedido (antes del despacho)
+    async function editItems() {
+      const lines = o.order_items.map((i) => ({ variant_id: i.variant_id, name: i.name, label: i.variant_label, qty: i.qty, price: i.unit_price }));
+      let shipping = o.shipping;
+      const m = A.modal({
+        title: `Editar productos · #${o.number}`, wide: true,
+        body: `<div id="ei-lines"></div><button type="button" class="btn btn-sm" id="ei-add" style="margin-top:8px">＋ Agregar producto</button>
+          <div class="sep"></div>
+          <div class="row2"><label class="f">Despacho<div class="prefix"><span>$</span><input id="ei-ship" type="number" min="0" value="${shipping}"></div></label>
+          <label class="f">Motivo <small>Queda en el historial</small><input id="ei-reason" placeholder="Ej: cliente cambió el tamaño"></label></div>
+          <div id="ei-total" class="banner info" style="margin-top:8px"></div>
+          ${o.stock_applied ? `<p class="help">El stock se ajusta automáticamente según los cambios.</p>` : ""}<p class="form-error" id="ei-err"></p>`,
+        foot: `<button class="btn" data-x>Cancelar</button><button class="btn btn-primary" id="ei-save">Guardar cambios</button>`,
+      });
+      const drawTotal = () => {
+        const sub = lines.reduce((s, l) => s + l.qty * l.price, 0);
+        const total = Math.max(0, sub - Math.min(o.promo_discount, sub) - Math.min(o.discount, sub)) + shipping;
+        const diff = total - o.total;
+        m.el.querySelector("#ei-total").innerHTML = `<span>🧾</span><div><b>Nuevo total: ${clp(total)}</b>${diff && o.paid_at ? (diff > 0 ? `Debes cobrar ${clp(diff)} adicionales al cliente.` : `Debes devolver ${clp(-diff)} al cliente.`) : `Antes: ${clp(o.total)}`}</div>`;
+      };
+      const draw = () => {
+        m.el.querySelector("#ei-lines").innerHTML = `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Producto</th><th>Precio</th><th>Cant.</th><th class="num">Total</th><th></th></tr></thead><tbody>
+          ${lines.map((l, i) => `<tr><td><b>${esc(l.name)}</b><br><small class="muted">${esc(l.label || "")}</small></td>
+            <td><div class="prefix" style="max-width:120px"><span>$</span><input type="number" min="0" data-price="${i}" value="${l.price}"></div></td>
+            <td><input type="number" min="0" data-qty="${i}" value="${l.qty}" style="width:70px"></td>
+            <td class="num"><b data-lt="${i}">${clp(l.qty * l.price)}</b></td><td><button type="button" class="btn btn-plain danger btn-sm" data-del="${i}" aria-label="Quitar">✕</button></td></tr>`).join("")}</tbody></table></div>`;
+        drawTotal();
+      };
+      draw();
+      m.el.querySelector("#ei-lines").addEventListener("input", (e) => {
+        const q = e.target.dataset.qty, pr = e.target.dataset.price, i = q ?? pr;
+        if (i == null) return;
+        if (q != null) lines[+q].qty = Math.max(0, A.int(e.target.value) || 0);
+        if (pr != null) lines[+pr].price = Math.max(0, A.int(e.target.value) || 0);
+        m.el.querySelector(`[data-lt="${i}"]`).textContent = clp(lines[+i].qty * lines[+i].price);
+        drawTotal();
+      });
+      m.el.querySelector("#ei-lines").addEventListener("click", (e) => { const b = e.target.closest("[data-del]"); if (b) { lines.splice(+b.dataset.del, 1); draw(); } });
+      m.el.querySelector("#ei-ship").oninput = (e) => { shipping = Math.max(0, A.int(e.target.value) || 0); drawTotal(); };
+      m.el.querySelector("#ei-add").onclick = async () => {
+        const hit = await A.pickVariant();
+        if (!hit) return;
+        const ex = lines.find((l) => l.variant_id === hit.v.id);
+        if (ex) ex.qty++; else lines.push({ variant_id: hit.v.id, name: hit.p.name, label: hit.v.label, qty: 1, price: hit.v.price });
+        draw();
+      };
+      m.el.querySelector("#ei-save").onclick = async () => {
+        const items = lines.filter((l) => l.qty > 0 && l.variant_id).map((l) => ({ variant_id: l.variant_id, qty: l.qty, unit_price: l.price }));
+        if (!items.length) { m.el.querySelector("#ei-err").textContent = "El pedido debe tener al menos un producto. Para anularlo usa Cancelar pedido."; return; }
+        try {
+          await A.rpc("edit_order_items", { p_order: o.id, p_items: items, p_shipping: shipping, p_reason: m.el.querySelector("#ei-reason").value.trim() || null });
+          m.close(); A.state.products = null; await refresh("Pedido actualizado");
+        } catch (err) { m.el.querySelector("#ei-err").textContent = err.message; }
+      };
+    }
+
+    // ---- Devolución o cambio
+    async function registerReturn() {
+      const done = {};
+      returns.forEach((r) => r.items.forEach((i) => (done[i.variant_id] = (done[i.variant_id] || 0) + i.qty)));
+      const items = o.order_items.map((i) => ({ ...i, max: i.qty - (done[i.variant_id] || 0) })).filter((i) => i.max > 0 && i.variant_id);
+      if (!items.length) return A.toast("Todos los productos de este pedido ya fueron devueltos", true);
+      const canMp = o.payment_method === "mercadopago" && o.payment_detail?.payment_id && A.state.settings?.mp_configured;
+      const left = o.total - (o.refunded || 0);
+      const m = A.modal({
+        title: `Devolución o cambio · #${o.number}`, wide: true,
+        body: `<div class="row2"><label class="f">Tipo<select id="rt-kind"><option value="devolucion">↩️ Devolución (el cliente devuelve productos)</option><option value="cambio">🔄 Cambio (por otro producto o tamaño)</option></select></label>
+            <label class="f">Motivo<select id="rt-reason">${["Producto dañado o vencido", "Tamaño o sabor equivocado", "A la mascota no le gustó", "Error en el despacho", "Arrepentimiento", "Otro"].map((x) => `<option>${x}</option>`).join("")}</select></label></div>
+          <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Producto</th><th class="num">Comprado</th><th>Devuelve</th></tr></thead><tbody>
+          ${items.map((i, k) => `<tr><td><b>${esc(i.name)}</b><br><small class="muted">${esc(i.variant_label || "")} · ${clp(i.unit_price)} c/u</small></td><td class="num">${i.max}</td>
+            <td><input type="number" min="0" max="${i.max}" value="0" data-rq="${k}" style="width:80px"></td></tr>`).join("")}</tbody></table></div>
+          <label class="check"><input type="checkbox" id="rt-restock" checked> Volver a sumar al stock (el producto está en buen estado)</label>
+          <div class="sep"></div>
+          <div class="row2"><label class="f">Reembolso <small>Quedan ${clp(left)} por reembolsar</small><div class="prefix"><span>$</span><input id="rt-amount" type="number" min="0" max="${left}" value="0"></div></label>
+            <label class="f">Cómo se devuelve el dinero<select id="rt-method">
+              ${canMp ? `<option value="mp">Mercado Pago (automático a la tarjeta del cliente)</option>` : ""}
+              <option value="Transferencia">Transferencia</option><option value="Efectivo">Efectivo</option><option value="Nota de crédito">Nota de crédito / saldo a favor</option><option value="">Sin reembolso (cambio)</option></select></label></div>
+          <p class="form-error" id="rt-err"></p>`,
+        foot: `<button class="btn" data-x>Cancelar</button><button class="btn btn-primary" id="rt-save">Registrar</button>`,
+      });
+      const qtys = () => items.map((i, k) => ({ i, q: Math.min(i.max, Math.max(0, A.int(m.el.querySelector(`[data-rq="${k}"]`).value) || 0)) }));
+      let touched = false;
+      m.el.querySelector("#rt-amount").oninput = () => (touched = true);
+      m.el.addEventListener("input", (e) => {
+        if (!e.target.dataset.rq || touched) return;
+        m.el.querySelector("#rt-amount").value = Math.min(left, qtys().reduce((s, x) => s + x.q * x.i.unit_price, 0));
+      });
+      m.el.querySelector("#rt-kind").onchange = (e) => { if (e.target.value === "cambio") { m.el.querySelector("#rt-method").value = ""; m.el.querySelector("#rt-amount").value = 0; touched = true; } };
+      m.el.querySelector("#rt-save").onclick = async () => {
+        const err = m.el.querySelector("#rt-err");
+        const sel = qtys().filter((x) => x.q > 0);
+        if (!sel.length) { err.textContent = "Indica cuántas unidades devuelve"; return; }
+        const amount = Math.min(left, Math.max(0, A.int(m.el.querySelector("#rt-amount").value) || 0));
+        let method = m.el.querySelector("#rt-method").value;
+        const btn = m.el.querySelector("#rt-save"); btn.disabled = true;
+        try {
+          if (method === "mp" && amount > 0) {
+            if (!(await A.confirm({ title: "Reembolsar por Mercado Pago", message: `Se devolverán <b>${clp(amount)}</b> a la tarjeta del cliente. Esta acción no se puede deshacer.`, ok: "Reembolsar", danger: true }))) { btn.disabled = false; return; }
+            const { data, error } = await A.sb.functions.invoke("admin-tools", { body: { action: "mp_refund", order_id: o.id, amount } });
+            if (error || !data?.ok) throw new Error(data?.error || error?.message || "Mercado Pago rechazó el reembolso");
+            method = "Mercado Pago";
+          }
+          await A.rpc("register_return", { p: {
+            order_id: o.id, kind: m.el.querySelector("#rt-kind").value, restock: m.el.querySelector("#rt-restock").checked,
+            items: sel.map((x) => ({ variant_id: x.i.variant_id, qty: x.q })), refund_amount: method === "" ? 0 : amount,
+            refund_method: method || null, reason: m.el.querySelector("#rt-reason").value } });
+          m.close(); A.state.products = null; await refresh("Devolución registrada");
+        } catch (e2) { err.textContent = e2.message; btn.disabled = false; }
+      };
+    }
+
     function bind() {
       A.dropdown($("#d-wa"), $("#d-wa-menu"));
       A.dropdown($("#d-more"), $("#d-more-menu"));
@@ -506,6 +643,8 @@
         try { await A.rpc("cancel_order", { p_order: o.id, p_restock: r.restock, p_reason: r.reason }); A.state.products = null; await refresh("Pedido cancelado"); }
         catch (err) { A.fail(err); }
       });
+      $("#d-edit")?.addEventListener("click", editItems);
+      $("#d-return")?.addEventListener("click", registerReturn);
       $("#d-note-form").onsubmit = async (e) => {
         e.preventDefault();
         const msg = $("#d-note").value.trim(); if (!msg) return;

@@ -116,6 +116,8 @@
       const n = await A.q(A.sb.from("orders").select("id", { count: "exact", head: true }).eq("status", "pagado"));
       const el = $("#nav-orders-count"); el.hidden = !n; el.textContent = n;
       document.title = `${n ? `(${n}) ` : ""}Panel · Planeta 4 Patas`;
+      const r = await A.q(A.sb.from("product_reviews").select("id", { count: "exact", head: true }).eq("status", "pendiente")).catch(() => 0);
+      const rv = $("#nav-reviews-count"); if (rv) { rv.hidden = !r; rv.textContent = r; }
     } catch { /* sin conexión */ }
   };
 
@@ -212,4 +214,6 @@
     if (isRecovery && session) return viewReset();
     session ? start() : viewLogin();
   })();
+  // App instalable en el celular (agregar a pantalla de inicio)
+  if ("serviceWorker" in navigator && location.protocol === "https:") navigator.serviceWorker.register("sw.js").catch(() => {});
 })();

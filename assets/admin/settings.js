@@ -3,7 +3,7 @@
    ===================================================================== */
 (() => {
   const { $, $$, esc, clp } = A;
-  const TABS = [["general", "🏪 General"], ["pagos", "💳 Pagos"], ["despacho", "🚚 Despacho y retiro"], ["equipo", "👥 Equipo"]];
+  const TABS = [["general", "🏪 General"], ["pagos", "💳 Pagos"], ["despacho", "🚚 Despacho y retiro"], ["ventas", "🛒 Ventas"], ["correo", "✉️ Correo"], ["equipo", "👥 Equipo"]];
   const DIAS = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"];
 
   const saveSettings = async (patch, msg = "Configuración guardada") => {
@@ -170,6 +170,68 @@
         const delivery_zones = $$("#zones .zone").map((z) => ({ comuna: z.querySelector("[name=comuna]").value.trim(), dias: $$("input[type=checkbox]:checked", z).map((c) => c.value) })).filter((z) => z.comuna);
         try { await saveSettings({ shipping_fee: Math.max(0, A.int(f.shipping_fee.value) || 0), free_shipping_from: Math.max(0, A.int(f.free_shipping_from.value) || 0), delivery_zones, pickup_enabled: f.pickup_enabled.checked }); render("despacho"); }
         catch (err) { A.fail(err); }
+      };
+    }
+
+    if (tab === "ventas") {
+      A.render(shell(tab, `<form id="sv" class="stack">
+        <div class="card"><h2 style="margin-bottom:6px">Reserva de stock</h2>
+          <p class="muted" style="margin-top:0">Cuando un cliente va a pagar, sus productos quedan apartados para que nadie más compre la última unidad. Si no paga a tiempo, el stock vuelve solo.</p>
+          <div class="row2"><label class="f">Minutos para pagar con tarjeta <small>Mercado Pago / Webpay</small><input name="reserve_minutes" type="number" min="5" max="1440" value="${s.reserve_minutes ?? 30}"></label>
+          <label class="f">Horas para recibir una transferencia<input name="transfer_reserve_hours" type="number" min="1" max="168" value="${s.transfer_reserve_hours ?? 48}"></label></div>
+        </div>
+        <div class="card"><h2 style="margin-bottom:12px">Opiniones de productos</h2>
+          <label class="switch" style="margin-bottom:8px"><input type="checkbox" name="reviews_enabled" ${s.reviews_enabled ? "checked" : ""}> Permitir que los clientes opinen</label>
+          <label class="switch"><input type="checkbox" name="reviews_auto_approve" ${s.reviews_auto_approve ? "checked" : ""}> Publicar sin revisar</label>
+          <p class="help" style="margin-bottom:0">Revisa y responde en <a href="#/resenas">Productos → Opiniones</a>.</p>
+        </div>
+        <div style="display:flex;justify-content:flex-end"><button class="btn btn-orange">Guardar cambios</button></div></form>`));
+      bindTabs();
+      $("#sv").onsubmit = async (e) => {
+        e.preventDefault(); const f = e.target;
+        try {
+          await saveSettings({ reserve_minutes: Math.min(1440, Math.max(5, A.int(f.reserve_minutes.value) || 30)), transfer_reserve_hours: Math.min(168, Math.max(1, A.int(f.transfer_reserve_hours.value) || 48)),
+            reviews_enabled: f.reviews_enabled.checked, reviews_auto_approve: f.reviews_auto_approve.checked });
+        } catch (err) { A.fail(err); }
+      };
+    }
+
+    if (tab === "correo") {
+      A.render(shell(tab, `<div class="stack"><div class="card"><div class="spinner"></div></div></div>`));
+      bindTabs();
+      let st = { configured: false, from: "" };
+      try { const { data } = await A.sb.functions.invoke("marketing", { body: { action: "status" } }); st = data || st; } catch { /* sin conexión */ }
+      if (!document.querySelector('[data-go="correo"].on')) return;
+      A.render(shell(tab, `<div class="stack">
+        <div class="card"><div class="card-head"><h2>Servicio de correo (Resend)</h2>${st.configured ? A.badge("Conectado", "b-green") : A.badge("No conectado", "b-amber")}</div>
+          <p class="muted" style="margin-top:0">Se usa para campañas, recordatorios de recompra y códigos de descuento. Gratis hasta 3.000 correos al mes.</p>
+          ${st.configured ? `<p>Se envía como <b>${esc(st.from)}</b></p><button class="btn" id="em-test">Enviarme un correo de prueba</button>` : ""}
+          <details ${st.configured ? "" : "open"} style="margin-top:14px"><summary style="cursor:pointer;font-weight:800">Cómo conectarlo (10 minutos)</summary>
+            <ol style="line-height:1.8;padding-left:18px">
+              <li>Crea una cuenta gratis en <a href="https://resend.com/signup" target="_blank" rel="noopener">resend.com</a>.</li>
+              <li>En <b>Domains</b>, agrega el dominio de la tienda (ej: planeta4patas.cl) y copia los registros DNS que te indica en tu proveedor de dominio. <small class="muted">Sin dominio propio solo puedes enviarte correos de prueba a ti mismo.</small></li>
+              <li>En <b>API Keys</b>, crea una clave (permiso "Sending access") y cópiala (empieza con <span class="mono">re_</span>).</li>
+              <li>En <a href="https://supabase.com/dashboard/project/nfwezvfzmbxkjptubdvi/functions/secrets" target="_blank" rel="noopener">Supabase → Edge Functions → Secrets</a> agrega un secreto llamado <span class="mono">RESEND_API_KEY</span> con esa clave.</li>
+              <li>Abajo, escribe el remitente con tu dominio verificado y vuelve a esta pantalla: debería decir <b>Conectado</b>.</li>
+            </ol></details>
+        </div>
+        <form class="card" id="em-f"><h2 style="margin-bottom:12px">Remitente</h2>
+          <label class="f">Nombre y correo que verán tus clientes <small>Formato: Nombre &lt;correo@tudominio.cl&gt;. El dominio debe estar verificado en Resend.</small>
+            <input name="email_from" value="${esc(s.email_from || "")}" placeholder="Planeta 4 Patas <hola@planeta4patas.cl>"></label>
+          <label class="switch"><input type="checkbox" name="reminders_auto" ${s.reminders_auto ? "checked" : ""}> Enviar recordatorios de recompra automáticos cada día</label>
+          <div style="display:flex;justify-content:flex-end;margin-top:12px"><button class="btn btn-orange">Guardar</button></div></form>
+      </div>`));
+      bindTabs();
+      $("#em-test")?.addEventListener("click", async () => {
+        try { const { data } = await A.sb.functions.invoke("marketing", { body: { action: "test" } }); if (!data?.ok) throw new Error(data?.error || "No se pudo enviar"); A.toast(`Correo enviado a ${data.to}`); }
+        catch (err) { A.fail(err); }
+      });
+      $("#em-f").onsubmit = async (e) => {
+        e.preventDefault(); const f = e.target;
+        const from = f.email_from.value.trim();
+        if (from && !/<[^@\s]+@[^@\s]+\.[^@\s>]+>$|^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(from)) return A.toast("Revisa el formato del remitente", true);
+        if (f.reminders_auto.checked && !st.configured) { f.reminders_auto.checked = false; return A.toast("Primero conecta el correo", true); }
+        try { await saveSettings({ email_from: from || null, reminders_auto: f.reminders_auto.checked }); } catch (err) { A.fail(err); }
       };
     }
 

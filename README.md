@@ -36,9 +36,22 @@ Mientras no haya un medio de pago activo, la tienda **sigue vendiendo**: el bot�
 | **Descuentos** | Códigos por % / monto fijo / despacho gratis, compra mínima, fechas, límite de usos, una vez por cliente, **solo primera compra** y **solo suscriptores**. Botón para compartir por WhatsApp. |
 | **Pop-up promocional** | Ventana que aparece a los visitantes nuevos ofreciendo una promoción a cambio de sus datos. Título, texto, imagen, botón, código que se entrega, datos que se piden, segundos de espera y frecuencia, con vista previa. Viene listo con **BIENVENIDA10** (10% solo primera compra, solo suscriptores); se activa con un interruptor. |
 | **Análisis** | Cualquier rango de fechas: ventas, descuentos, conversión del pago, clientes que repiten, más vendidos, por categoría, medio de pago, comuna, canal, día de la semana y hora. Exportar ventas por línea. |
+| **Promociones automáticas** | Descuentos sin código que se aplican solos en el carrito: % en categorías/marcas/productos, **lleva X paga Y** (2x1, 3x2), $ de descuento sobre un monto y despacho gratis. Con fechas, mínimos y etiqueta en la foto. |
+| **Códigos únicos** | En Descuentos → "Códigos únicos": genera lotes de códigos de un solo uso (volantes, sorteos, influencers). El pop-up entrega uno personal a cada suscriptor. |
+| **Opiniones** | Los clientes califican productos (★1-5) desde la ficha. Tú publicas, ocultas o respondes; marca "compra verificada" si compró ese producto. |
+| **Recompra** | Lista de clientes a los que se les está acabando lo que compraron (según días por categoría o producto). Botón de WhatsApp listo y correo manual o automático diario. |
+| **Grupos y precios especiales** | Criaderos, veterinarias o mayoristas con % de descuento y/o despacho gratis. Se aplica al pagar con su correo. |
+| **Campañas de correo** | Diseña correos con imagen, código y botón; elige la audiencia (suscriptores, clientes, con perro/gato, inactivos…), envíate una prueba y envía. Incluye enlace para darse de baja. |
+| **Tráfico y búsquedas** | Visitas, embudo de compra, de dónde llegan (Instagram, Google, WhatsApp…), celular vs computador, productos más vistos y **lo que buscan y no encuentran**. Sin cookies. |
 | **Configuración** | General (datos, barra de anuncios, alerta de stock), **Pagos** (Mercado Pago, transferencia, Webpay), Despacho (costo, gratis desde, comunas y días, retiro) y **Equipo** (agregar administradores y quitar acceso). |
 
-Extras: búsqueda global (tecla `/`), aviso con sonido y notificación al entrar un pedido pagado, contador de pedidos por preparar, funciona en el celular.
+Extras: búsqueda global (tecla `/`), aviso con sonido y notificación al entrar un pedido pagado, contador de pedidos por preparar, funciona en el celular y **se instala como app** (menú del navegador → "Agregar a pantalla de inicio").
+
+**En cada pedido** (Más acciones): ✏️ **Editar productos** antes del despacho (ajusta stock y te dice cuánto cobrar o devolver) y ↩️ **Devolución o cambio** (repone stock y registra el reembolso; con Mercado Pago lo devuelve automáticamente a la tarjeta).
+
+**Códigos de barras**: 📷 escanea con la cámara del celular en Inventario (sumar/fijar stock) y en Crear pedido (venta en el local). Guarda el código de barras en cada formato y 🏷️ imprime etiquetas con precio desde Productos.
+
+**Reserva de stock**: cuando alguien va a pagar, sus productos quedan apartados (30 min tarjeta / 48 h transferencia, configurable en Configuración → Ventas). Así nunca se vende dos veces la última unidad.
 
 ---
 
@@ -54,6 +67,10 @@ Menú **Configuración → Administradores** → **＋ Agregar administrador** �
 - Si no hay pagos en línea activos: **pedido por WhatsApp** con el detalle completo.
 - Ficha de producto con **galería**, **productos relacionados**, **compartir por WhatsApp** y **enlace directo** (`?p=slug`).
 - SEO: datos estructurados de tienda (PetStore), Open Graph, `robots.txt` y `sitemap.xml`.
+- **Buscador inteligente**: sugerencias con foto mientras escribes y tolera errores de tipeo ("roial canin").
+- **Promociones visibles** ("3x2", "-10%") y el carrito muestra el descuento aplicado y cuánto falta para despacho gratis.
+- **Favoritos ♥** (se guardan en el celular del cliente) y **opiniones con estrellas** en cada producto.
+- **App instalable** (PWA) y analítica propia sin cookies (opcional: Umami).
 
 ---
 
@@ -71,13 +88,15 @@ Menú **Configuración → Administradores** → **＋ Agregar administrador** �
 
 ```
 index.html, assets/app.js, assets/styles.css      Tienda
-admin.html, assets/admin.css, assets/admin/*.js   Panel (core, home, orders, products, customers, marketing, settings, boot)
+admin.html, assets/admin.css, assets/admin/*.js   Panel (core, home, orders, products, customers, marketing, popup, scanner, growth, settings, boot)
+manifest.webmanifest, admin.webmanifest, sw.js    App instalable (PWA)
 assets/config.js                                  URL y clave pública de Supabase
-supabase/migrations/001…006                        Esquema, RLS, funciones (aplicadas en el proyecto)
+supabase/migrations/001…013                        Esquema, RLS, funciones (aplicadas en el proyecto)
 supabase/functions/checkout                       Crea pedido + pago (MP / Webpay / transferencia) con descuentos
 supabase/functions/mp-webhook                     Confirma pagos de Mercado Pago
 supabase/functions/webpay-return                  Confirma pagos Webpay
-supabase/functions/admin-tools                    Verifica credenciales de Mercado Pago (solo admin)
+supabase/functions/admin-tools                    Verifica Mercado Pago y hace reembolsos (solo admin)
+supabase/functions/marketing                      Correos (Resend): campañas, recompra diaria, darse de baja
 supabase/functions/import-images                  Copia fotos externas al Storage (solo admin)
 tools/catalogo.py                                 Genera 002_catalogo.sql y demo-data.js desde el Excel
 ```
@@ -89,6 +108,8 @@ Publicar cambios: `git push` a `main` → GitHub Pages actualiza el sitio en ~1 
 ---
 
 ## ✅ Pendientes recomendados
+
+- **Correo (campañas y recordatorios)**: crea cuenta gratis en resend.com, verifica tu dominio y agrega el secreto `RESEND_API_KEY` en Supabase → Edge Functions → Secrets. Guía paso a paso en Configuración → Correo.
 
 - Supabase → **Authentication → URL Configuration → Site URL**: poner `https://dtorresag88.github.io/planeta4patas/admin.html` (para que los enlaces de confirmación y de "olvidé mi contraseña" vuelvan al panel).
 - Supabase → Authentication → Users: eliminar la cuenta de prueba sin confirmar `dtorresag+qa@gmail.com` (creada durante las pruebas; no tiene acceso).

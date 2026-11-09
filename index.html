@@ -22,6 +22,8 @@
   </script>
   <meta name="theme-color" content="#0f2a52">
   <link rel="icon" href="assets/logo.jpg">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="assets/icon-192.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@600;700;800&family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet">
@@ -45,7 +47,8 @@
       </a>
       <label class="search">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10.5 3a7.5 7.5 0 0 1 5.96 12.06l4.24 4.24-1.42 1.42-4.24-4.24A7.5 7.5 0 1 1 10.5 3Zm0 2a5.5 5.5 0 1 0 0 11 5.5 5.5 0 0 0 0-11Z"/></svg>
-        <input id="search" type="search" placeholder="Busca por producto, marca o código…" autocomplete="off">
+        <input id="search" type="search" placeholder="Busca por producto, marca o código…" autocomplete="off" aria-autocomplete="list" aria-controls="suggest">
+        <div class="suggest" id="suggest" role="listbox" hidden></div>
       </label>
       <nav class="nav">
         <a href="#catalogo" data-species="perro">Perros</a>
@@ -53,6 +56,7 @@
         <a href="#ofertas">Ofertas</a>
         <a href="#despacho">Despacho</a>
       </nav>
+      <button class="fav-btn" id="open-favs" aria-label="Ver mis favoritos" title="Mis favoritos">♥<span class="cart-count" id="fav-count" hidden>0</span></button>
       <button class="cart-btn" id="open-cart" aria-label="Abrir carrito">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 18a2 2 0 1 1 0 4 2 2 0 0 1 0-4Zm10 0a2 2 0 1 1 0 4 2 2 0 0 1 0-4ZM1 2h3.3l.9 2H21a1 1 0 0 1 .96 1.27l-2.5 9A1 1 0 0 1 18.5 15H8.1l-.9 2H19v2H5.6a1 1 0 0 1-.9-1.45L6.1 14.6 2.7 4H1V2Z"/></svg>
         <span class="cart-count" id="cart-count">0</span>
@@ -234,6 +238,7 @@
     <div class="free-ship" id="free-ship"></div>
     <div class="cart-items" id="cart-items"></div>
     <div class="drawer-foot">
+      <div id="cart-promos"></div>
       <div class="row"><span>Subtotal</span><b id="cart-subtotal">$0</b></div>
       <small class="muted">El despacho se calcula en el siguiente paso.</small>
       <button class="btn btn-orange btn-block btn-lg" id="go-checkout">Ir a pagar</button>
@@ -295,8 +300,10 @@
             </div>
             <p class="coupon-msg" id="co-code-msg"></p>
             <div class="row"><span>Subtotal</span><span id="co-subtotal"></span></div>
+            <div id="co-promos"></div>
             <div class="row" id="co-disc-row" hidden><span>Descuento <small id="co-disc-code"></small></span><span id="co-discount"></span></div>
             <div class="row"><span>Despacho</span><span id="co-shipping"></span></div>
+            <p class="co-hint" id="co-freehint" hidden></p>
             <div class="row total"><span>Total</span><b id="co-total"></b></div>
             <p class="form-error" id="co-error" role="alert"></p>
             <button class="btn btn-orange btn-block btn-lg" id="co-submit" type="submit">Pagar</button>
@@ -312,6 +319,7 @@
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
+  <script src="https://cdn.jsdelivr.net/npm/fuse.js@7.0.0/dist/fuse.min.js"></script>
   <script src="assets/config.js"></script>
   <script src="assets/demo-data.js"></script>
   <script src="assets/app.js"></script>

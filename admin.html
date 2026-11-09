@@ -6,6 +6,9 @@
   <meta name="robots" content="noindex, nofollow">
   <title>Panel · Planeta 4 Patas</title>
   <link rel="icon" href="assets/logo.jpg">
+  <link rel="manifest" href="admin.webmanifest">
+  <link rel="apple-touch-icon" href="assets/icon-admin-192.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="theme-color" content="#0f2a52">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -51,14 +54,24 @@
         <div class="sub">
           <a href="#/inventario" data-nav="inventario">Inventario</a>
           <a href="#/categorias" data-nav="categorias">Categorías</a>
+          <a href="#/resenas" data-nav="resenas">Opiniones<span class="count" id="nav-reviews-count" hidden></span></a>
         </div>
         <a href="#/clientes" data-nav="clientes"><span class="ico">👤</span>Clientes</a>
         <div class="sub">
           <a href="#/suscriptores" data-nav="suscriptores">Suscriptores</a>
+          <a href="#/recompra" data-nav="recompra">Recompra</a>
+          <a href="#/grupos" data-nav="grupos">Grupos y precios especiales</a>
         </div>
         <a href="#/descuentos" data-nav="descuentos"><span class="ico">🎟️</span>Descuentos</a>
+        <div class="sub">
+          <a href="#/promociones" data-nav="promociones">Promociones automáticas</a>
+        </div>
+        <a href="#/campanas" data-nav="campanas"><span class="ico">✉️</span>Campañas de correo</a>
         <a href="#/popup" data-nav="popup"><span class="ico">📣</span>Pop-up promocional</a>
         <a href="#/analisis" data-nav="analisis"><span class="ico">📊</span>Análisis</a>
+        <div class="sub">
+          <a href="#/trafico" data-nav="trafico">Tráfico y búsquedas</a>
+        </div>
         <div class="nav-sep"></div>
         <a href="./" target="_blank" rel="noopener"><span class="ico">🛍️</span>Tienda online ↗</a>
         <a href="#/configuracion" data-nav="configuracion"><span class="ico">⚙️</span>Configuración</a>
@@ -89,6 +102,8 @@
   <script src="assets/admin/customers.js"></script>
   <script src="assets/admin/marketing.js"></script>
   <script src="assets/admin/popup.js"></script>
+  <script src="assets/admin/scanner.js"></script>
+  <script src="assets/admin/growth.js"></script>
   <script src="assets/admin/settings.js"></script>
   <script src="assets/admin/boot.js"></script>
 </body>

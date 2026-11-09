@@ -45,7 +45,7 @@
     }
     const buyers = list.filter((c) => c.orders_count > 0);
     A.render(`<div class="page">
-      ${A.head({ title: "Clientes", actions: `<button class="btn" id="c-export">Exportar</button>` })}
+      ${A.head({ title: "Clientes", actions: `<a class="btn" href="#/recompra">🔁 Recompra</a><a class="btn" href="#/grupos">🏷️ Grupos</a><button class="btn" id="c-export">Exportar</button>` })}
       <div class="kpis">
         <div class="kpi"><small>Clientes</small><b>${num(list.length)}</b></div>
         <div class="kpi"><small>Con compras</small><b>${num(buyers.length)}</b></div>
@@ -118,6 +118,7 @@
             ${c.rut ? `<p style="margin:0 0 4px">🪪 RUT ${esc(c.rut)}</p>` : ""}
             ${c.address ? `<p style="margin:0">📍 ${esc(c.address)}${c.comuna ? `, ${esc(c.comuna)}` : ""}</p>` : ""}
           </div>
+          ${email !== NO_EMAIL ? `<div class="card"><h2 style="margin-bottom:10px">Precio especial</h2><div id="c-group"><span class="muted small">Cargando…</span></div></div>` : ""}
           <div class="card"><h2 style="margin-bottom:10px">Lo que más compra</h2>
             ${favs.length ? A.barsList(favs.map(([l, q]) => ({ label: esc(l), value: q })), { money: false }) : `<p class="muted" style="margin:0">Sin compras pagadas</p>`}</div>
           <div class="card"><h2 style="margin-bottom:10px">Notas</h2>
@@ -136,6 +137,7 @@
     };
     const bind = () => {
       A.$$("[data-href]").forEach((tr) => (tr.onclick = () => (location.hash = tr.dataset.href)));
+      if ($("#c-group")) A.customerGroupBox(email, $("#c-group")).catch(() => ($("#c-group").innerHTML = ""));
       $("#cn-save").onclick = () => save("Notas guardadas");
       $("#cn-tagf").onsubmit = async (e) => { e.preventDefault(); const t = $("#cn-tag").value.trim().toLowerCase(); if (t && !tags.includes(t)) { tags = [...tags, t]; await save("Etiqueta agregada"); draw(); bind(); } };
       $("#main").querySelectorAll("[data-untag]").forEach((b) => (b.onclick = async () => { tags = tags.filter((t) => t !== b.dataset.untag); await save("Etiqueta quitada"); draw(); bind(); }));

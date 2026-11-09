@@ -66,6 +66,7 @@
             <div id="pf-code-help"></div>
             <label class="check"><input type="checkbox" name="popup_ask_phone" ${s.popup_ask_phone ? "checked" : ""}> Pedir WhatsApp (opcional para el cliente)</label>
             <label class="check"><input type="checkbox" name="popup_ask_pet" ${s.popup_ask_pet ? "checked" : ""}> Preguntar qué mascota tiene</label>
+            <label class="check"><input type="checkbox" name="popup_unique_codes" ${s.popup_unique_codes !== false ? "checked" : ""}> Entregar un código personal de un solo uso a cada persona (recomendado)</label>
             <p class="help" style="margin-bottom:0">Siempre se pide nombre y correo.</p>
           </div>
           <div class="card"><h2 style="margin-bottom:12px">Cuándo aparece</h2>
@@ -82,7 +83,7 @@
     const read = () => ({
       popup_enabled: f.popup_enabled.checked, popup_title: f.popup_title.value.trim(), popup_text: f.popup_text.value.trim(),
       popup_button: f.popup_button.value.trim() || "Quiero mi descuento", popup_success: f.popup_success.value.trim(),
-      popup_code: f.popup_code.value || null, popup_ask_phone: f.popup_ask_phone.checked, popup_ask_pet: f.popup_ask_pet.checked,
+      popup_code: f.popup_code.value || null, popup_ask_phone: f.popup_ask_phone.checked, popup_ask_pet: f.popup_ask_pet.checked, popup_unique_codes: f.popup_unique_codes.checked,
       popup_delay: Math.min(120, Math.max(0, A.int(f.popup_delay.value) ?? 6)), popup_frequency_days: Math.min(365, Math.max(1, A.int(f.popup_frequency_days.value) || 7)),
       popup_image: s.popup_image || null,
     });

@@ -21,13 +21,15 @@
     const prevFrom = new Date(from - days * 864e5);
 
     const [settings] = await Promise.all([A.loadSettings(), A.loadCatalog()]);
-    const [orders, toPrepare, transfers, abandoned] = await Promise.all([
+    const [orders, toPrepare, transfers, abandoned, reviewsPending, due] = await Promise.all([
       A.q(A.sb.from("orders").select("id, number, status, total, discount, created_at, customer_name, payment_method, delivery_method, comuna, order_items(name, variant_label, qty, line_total, product_id)")
         .gte("created_at", prevFrom.toISOString()).order("created_at", { ascending: false }).limit(5000)),
       A.q(A.sb.from("orders").select("id", { count: "exact", head: true }).eq("status", "pagado")),
       A.q(A.sb.from("orders").select("id", { count: "exact", head: true }).eq("status", "pendiente_pago").eq("payment_method", "transferencia")),
       A.q(A.sb.from("orders").select("id", { count: "exact", head: true }).eq("status", "pendiente_pago").neq("payment_method", "transferencia")
         .lt("created_at", new Date(Date.now() - 3600e3).toISOString()).gte("created_at", new Date(Date.now() - 7 * 864e5).toISOString())),
+      A.q(A.sb.from("product_reviews").select("id", { count: "exact", head: true }).eq("status", "pendiente")).catch(() => 0),
+      A.rpc("replenish_due", { p_ahead: 2, p_back: 14 }).then((r) => r.filter((x) => !x.reminded_at).length).catch(() => 0),
     ]);
 
     const sold = (o) => A.SOLD.includes(o.status);
@@ -66,6 +68,8 @@
       transfers && [`#/pedidos?f=transferencias`, "🏦", `<b>${transfers} transferencia${transfers > 1 ? "s" : ""}</b> por confirmar`, transfers],
       abandoned && [`#/pedidos?f=abandonados`, "🛒", `<b>${abandoned}</b> pago${abandoned > 1 ? "s" : ""} no completado${abandoned > 1 ? "s" : ""} (últimos 7 días) · recupéralos por WhatsApp`, abandoned],
       low.length && [`#/inventario?f=bajo`, "⚠️", `<b>${low.length} formato${low.length > 1 ? "s" : ""}</b> con stock bajo`, low.length],
+      due && [`#/recompra`, "🔁", `<b>${due} cliente${due > 1 ? "s" : ""}</b> por recordar recompra`, due],
+      reviewsPending && [`#/resenas`, "⭐", `<b>${reviewsPending} opinión${reviewsPending > 1 ? "es" : ""}</b> por revisar`, reviewsPending],
       noPhoto && [`#/productos?f=sinfoto`, "📷", `<b>${noPhoto} producto${noPhoto > 1 ? "s" : ""}</b> sin foto`, noPhoto],
     ].filter(Boolean);
 
