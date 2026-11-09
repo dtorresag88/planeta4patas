@@ -178,11 +178,11 @@
       A.render(shell(tab, `<div class="stack">
         <div class="card flush"><div class="card-head" style="padding:16px 16px 0"><h2>Personas con acceso al panel</h2><button class="btn btn-primary btn-sm" id="t-inv">＋ Agregar administrador</button></div>
           <div class="tbl-wrap"><table class="tbl"><tbody>${team.map((t) => `<tr><td><div class="pcell"><span class="avatar">${esc(A.initials(t.email))}</span><div><b>${esc(t.email)}</b><small class="muted">${t.pending ? "Invitación pendiente: debe crear su cuenta en el panel" : t.last_sign_in_at ? `Último ingreso ${A.ago(t.last_sign_in_at)}` : "Aún no ingresa"}</small></div></div></td>
-            <td class="num nowrap">${t.pending ? A.badge("Pendiente", "b-amber") : t.user_id === A.state.user?.id ? A.badge("Tú", "b-info") : A.badge("Administrador", "b-green")}
-              ${t.user_id === A.state.user?.id ? "" : `<button class="btn btn-sm btn-plain danger" data-rm="${esc(t.email)}">${t.pending ? "Cancelar invitación" : "Quitar acceso"}</button>`}</td></tr>`).join("")}</tbody></table></div></div>
+            <td class="num"><div style="display:flex;flex-wrap:wrap;gap:4px 8px;justify-content:flex-end;align-items:center">${t.pending ? A.badge("Pendiente", "b-amber") : t.user_id === A.state.user?.id ? A.badge("Tú", "b-info") : A.badge("Administrador", "b-green")}
+              ${t.user_id === A.state.user?.id ? "" : `<button class="btn btn-sm btn-plain danger" data-rm="${esc(t.email)}">${t.pending ? "Cancelar invitación" : "Quitar acceso"}</button>`}</div></td></tr>`).join("")}</tbody></table></div></div>
         <div class="card"><h2 style="margin-bottom:8px">¿Cómo invito a alguien?</h2>
           <ol style="margin:0;padding-left:18px;line-height:1.8"><li>Pulsa <b>Agregar administrador</b> y escribe su correo.</li>
-          <li>Envíale el enlace del panel: <a href="${esc(location.href.split("#")[0])}">${esc(location.href.split("#")[0])}</a></li>
+          <li>Envíale el enlace del panel: <a style="overflow-wrap:anywhere" href="${esc(location.href.split("#")[0])}">${esc(location.href.split("#")[0])}</a></li>
           <li>Esa persona elige <b>Crear cuenta</b> con ese mismo correo, confirma el correo que le llega y entra.</li></ol>
           <p class="help">Todas las personas del equipo tienen acceso completo. Puedes quitar el acceso en cualquier momento con <b>Quitar acceso</b> y volver a invitarla después.</p></div>
       </div>`));
